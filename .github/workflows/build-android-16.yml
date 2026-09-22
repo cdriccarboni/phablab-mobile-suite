@@ -39,6 +39,7 @@ jobs:
           rm -rf android
           cp -R android-base android
           chmod +x android/gradlew
+          MOBILE_APP_ID=phablabphone MOBILE_APP_NAME=PhabLabPhone VITE_APP_ID=phablabphone npx cap sync android
       - name: Build and verify 16 APKs
         run: node scripts/build-android-shared.mjs
       - uses: actions/upload-artifact@v4
