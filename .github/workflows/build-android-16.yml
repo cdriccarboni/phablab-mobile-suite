@@ -26,6 +26,7 @@ jobs:
           java-version: '21'
       - name: Install dependencies
         run: npm ci
+      - uses: android-actions/setup-android@v3
       - name: Install Android API 36
         run: |
           yes | sdkmanager --licenses >/dev/null || true
