@@ -23,6 +23,7 @@ const gradleFile = join(android, 'app', 'build.gradle');
 const stringsFile = join(android, 'app', 'src', 'main', 'res', 'values', 'strings.xml');
 const configFile = join(android, 'app', 'src', 'main', 'assets', 'capacitor.config.json');
 const publicDir = join(android, 'app', 'src', 'main', 'assets', 'public');
+mkdirSync(dirname(configFile), { recursive: true });
 const gradlew = join(android, 'gradlew');
 const aapt = join(sdk, 'build-tools', '36.0.0', 'aapt');
 const signer = join(sdk, 'build-tools', '36.0.0', 'apksigner');
