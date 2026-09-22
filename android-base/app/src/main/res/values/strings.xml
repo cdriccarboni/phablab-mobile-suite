@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PhabLabPhone</string>
+    <string name="title_activity_main">PhabLabPhone</string>
+    <string name="package_name">com.phablabphone.phablabphone</string>
+    <string name="custom_url_scheme">com.phablabphone.phablabphone</string>
+</resources>

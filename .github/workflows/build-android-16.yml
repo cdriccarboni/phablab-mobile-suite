@@ -1,0 +1,46 @@
+name: Build 16 Android APKs
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'apps.json'
+      - 'package*.json'
+      - 'android-base/**'
+      - '.github/workflows/build-android-16.yml'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Android API 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - name: Build web apps
+        run: npm run build:all
+      - name: Prepare Android base
+        run: |
+          rm -rf android
+          cp -R android-base android
+          chmod +x android/gradlew
+      - name: Build and verify 16 APKs
+        run: node scripts/build-android-shared.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phablab-16-apks
+          path: release/
+          if-no-files-found: error
