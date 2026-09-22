@@ -1,0 +1,18 @@
+[
+  {"id":"wallcheck","name":"WallCheck","emoji":"🧱","tagline":"Test what a wall really blocks.","subtitle":"Compare sound isolation in seconds","category":"Utilities","share":"My wall changed the sound level by {value}."},
+  {"id":"captioncast","name":"CaptionCast","emoji":"💬","tagline":"Speak here. Read it there.","subtitle":"Live captions on another phone","category":"Productivity","share":"CaptionCast turned one phone into a remote live subtitle screen."},
+  {"id":"signme","name":"SignMe","emoji":"📟","tagline":"Turn any phone into a remote sign.","subtitle":"Instant remote signs and messages","category":"Utilities","share":"I turned a spare phone into a live remote sign."},
+  {"id":"lagcheck","name":"LagCheck","emoji":"⚡","tagline":"See the sound-picture delay.","subtitle":"Quick audio/video sync check","category":"Utilities","share":"LagCheck measured an A/V offset of {value}."},
+  {"id":"tapback","name":"TapBack","emoji":"👆","tagline":"One button. Another phone reacts.","subtitle":"Remote tap, buzz and flash","category":"Utilities","share":"TapBack turned two phones into a one-tap remote signal."},
+  {"id":"papercheck","name":"Paper → Checklist","emoji":"☑️","tagline":"Photograph a list. Tick it.","subtitle":"Turn paper lists into checklists","category":"Productivity","share":"I converted a paper list into a checklist in seconds."},
+  {"id":"comparesound","name":"CompareSound","emoji":"🎚️","tagline":"Before. After. Hear the difference.","subtitle":"Compare acoustic changes simply","category":"Utilities","share":"My before/after sound difference was {value}."},
+  {"id":"showmethat","name":"ShowMeThat","emoji":"👉","tagline":"Show this. On that phone.","subtitle":"Send a photo straight to another screen","category":"Productivity","share":"ShowMeThat sent a visual reference instantly between two phones."},
+  {"id":"counttogether","name":"CountTogether","emoji":"🔢","tagline":"One counter. Many phones.","subtitle":"A synchronized shared counter","category":"Utilities","share":"We counted together across multiple phones."},
+  {"id":"phablabphone","name":"PhabLabPhone","emoji":"🧪","tagline":"Turn your phones into a laboratory.","subtitle":"Pocket experiments with phone sensors","category":"Education","share":"I ran a phone-sensor experiment with PhabLabPhone."},
+  {"id":"twinlevel","name":"TwinLevel","emoji":"📐","tagline":"Copy an angle somewhere else.","subtitle":"Match the tilt of two surfaces","category":"Utilities","share":"TwinLevel matched two surfaces to within {value}."},
+  {"id":"sensorlink","name":"SensorLink","emoji":"📡","tagline":"A spare phone becomes a remote sensor.","subtitle":"Stream phone sensors to another phone","category":"Utilities","share":"I turned an old phone into a live remote sensor."},
+  {"id":"syncmark","name":"SyncMark","emoji":"🎬","tagline":"One mark across every phone.","subtitle":"Multi-phone sync clap and flash","category":"Photo & Video","share":"SyncMark fired a shared sync mark across our phones."},
+  {"id":"soundrace","name":"SoundRace","emoji":"🏁","tagline":"Which phone heard it first?","subtitle":"Race sound across multiple phones","category":"Education","share":"SoundRace ranked which phone heard the sound first."},
+  {"id":"framematch","name":"FrameMatch","emoji":"🖼️","tagline":"Recreate the exact shot.","subtitle":"Overlay a reference to match framing","category":"Photo & Video","share":"FrameMatch helped me recreate the same camera framing."},
+  {"id":"relaytap","name":"RelayTap","emoji":"⏱️","tagline":"Race the signal.","subtitle":"Multi-phone reaction relay","category":"Games","share":"My RelayTap reaction time was {value}."}
+]

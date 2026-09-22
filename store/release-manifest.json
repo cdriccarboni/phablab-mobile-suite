@@ -1,0 +1,13 @@
+{
+  "suiteVersion": "1.0.0",
+  "android": {"targetSdk":36,"minSdk":26,"artifact":"AAB"},
+  "ios": {"minimum":"15.5","buildSdk":"iOS 26+","artifact":"IPA"},
+  "bundleIdPattern":"com.phablabphone.<app-id>",
+  "privacy":{"accountRequired":false,"cloudRequired":false,"defaultStorage":"local","analyticsBundled":false},
+  "releaseState":"pre-store-signing",
+  "notes":[
+    "Public names remain subject to trademark/name-availability review before store registration.",
+    "Physical-device QA is required for microphone, camera, motion, speech, OCR and WebRTC.",
+    "Store signing and submission require developer-account credentials that must never be committed."
+  ]
+}

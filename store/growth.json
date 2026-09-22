@@ -1,0 +1,210 @@
+[
+  {
+    "id": "wallcheck",
+    "hook": "Close the door. Watch the number change.",
+    "wow": "Two phones + door test",
+    "caption": "How much sound did this wall actually block?",
+    "screens": [
+      "ROOM TEST",
+      "CLOSE IT",
+      "SEE THE DIFFERENCE"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "captioncast",
+    "hook": "Talk here. Giant words appear over there.",
+    "wow": "Remote live captions",
+    "caption": "Speak on one phone. Read on another.",
+    "screens": [
+      "PAIR",
+      "SPEAK",
+      "READ ACROSS THE ROOM"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "signme",
+    "hook": "Turn an old phone into a sign in 10 seconds.",
+    "wow": "Old-phone transformation",
+    "caption": "Your spare phone just became a remote sign.",
+    "screens": [
+      "CONNECT",
+      "TYPE",
+      "IT CHANGES OVER THERE"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "lagcheck",
+    "hook": "See whether sound arrives before or after the flash.",
+    "wow": "A/V offset reveal",
+    "caption": "Is your TV actually out of sync?",
+    "screens": [
+      "POINT",
+      "SCAN",
+      "GET THE OFFSET"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "tapback",
+    "hook": "Tap here. Another phone buzzes there.",
+    "wow": "Instant remote reaction",
+    "caption": "A one-button signal with no setup ritual.",
+    "screens": [
+      "PAIR",
+      "TAP",
+      "BUZZ"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "papercheck",
+    "hook": "Photograph paper. Get tick boxes.",
+    "wow": "Camera-to-checklist transformation",
+    "caption": "Stop retyping printed lists.",
+    "screens": [
+      "SNAP",
+      "OCR",
+      "TICK"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "comparesound",
+    "hook": "Change the room. Measure the difference.",
+    "wow": "Before/after reveal",
+    "caption": "Did that rug or curtain actually change the sound?",
+    "screens": [
+      "BEFORE",
+      "CHANGE IT",
+      "AFTER"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "showmethat",
+    "hook": "Take a photo here. It appears there.",
+    "wow": "Instant remote visual",
+    "caption": "No chat thread. Just show exactly that.",
+    "screens": [
+      "PAIR",
+      "SHOOT",
+      "SHOW"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "counttogether",
+    "hook": "Tap +1 on any phone. Every screen agrees.",
+    "wow": "Shared state effect",
+    "caption": "One counter across the whole team.",
+    "screens": [
+      "PAIR",
+      "COUNT",
+      "EVERY SCREEN UPDATES"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "phablabphone",
+    "hook": "Your phone is already a tiny laboratory.",
+    "wow": "Sensor discovery",
+    "caption": "Microphone, motion and orientation become experiments.",
+    "screens": [
+      "PICK A SENSOR",
+      "MOVE / SOUND",
+      "SEE LIVE DATA"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "twinlevel",
+    "hook": "Copy this exact tilt somewhere else.",
+    "wow": "Match reveal",
+    "caption": "Capture an angle here. Match it there.",
+    "screens": [
+      "CAPTURE",
+      "MOVE",
+      "MATCH ✓"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "sensorlink",
+    "hook": "Leave an old phone there. Read its sensors here.",
+    "wow": "Old-phone sensor node",
+    "caption": "Turn a spare phone into a remote telemetry puck.",
+    "screens": [
+      "PAIR",
+      "LEAVE IT",
+      "WATCH LIVE"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "syncmark",
+    "hook": "One tap. Every phone flashes and beeps together.",
+    "wow": "Multi-phone sync spectacle",
+    "caption": "A pocket sync mark for quick shoots and experiments.",
+    "screens": [
+      "PAIR",
+      "MARK",
+      "ALL FIRE"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "soundrace",
+    "hook": "Make one sound. See which phone heard it first.",
+    "wow": "Race reveal",
+    "caption": "Sound has a finish line now.",
+    "screens": [
+      "ARM",
+      "CLAP",
+      "RANK"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "framematch",
+    "hook": "Overlay yesterday's shot on today's camera.",
+    "wow": "Before/after alignment",
+    "caption": "Recreate the same framing without guessing.",
+    "screens": [
+      "REFERENCE",
+      "OVERLAY",
+      "MATCH THE SHOT"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  },
+  {
+    "id": "relaytap",
+    "hook": "Wait for the signal. Race your friends' reaction time.",
+    "wow": "Competitive result",
+    "caption": "Two phones become a reaction relay.",
+    "screens": [
+      "PAIR",
+      "WAIT",
+      "TAP!"
+    ],
+    "shareCTA": "Share the result, not an ad.",
+    "launchVideoSeconds": 8
+  }
+]
