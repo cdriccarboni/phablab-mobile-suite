@@ -35,3 +35,21 @@ assert.equal(avOffset(null, 100), null);
 assert.equal(avOffset(Number.NaN, 100), null);
 
 console.log('Core logic OK');
+
+
+const logic = await import('../src/logic.ts');
+assert.equal(logic.isLevelReference({b:0,g:0}), true);
+assert.equal(logic.isLevelReference({b:181,g:0}), false);
+assert.deepEqual(logic.levelDifference({b:0,g:0},{b:0,g:0}), {x:0,y:0,total:0,match:true});
+assert.deepEqual(logic.sensorSample({db:-20,beta:10,gamma:Number.NaN,motion:2}), {db:-20,beta:10,motion:2});
+assert.deepEqual(logic.updateSensorStats({}, {db:-20}), {db:{min:-20,max:-20}});
+assert.deepEqual(logic.updateSensorStats({db:{min:-20,max:-10}}, {db:-30}), {db:{min:-30,max:-10}});
+assert.equal(logic.markDelay(0), 0);
+assert.equal(logic.markDelay(3000), 3000);
+assert.equal(logic.markDelay(1200), null);
+let race=[];
+race=logic.addRaceResult(race,'b',200);
+race=logic.addRaceResult(race,'a',100);
+race=logic.addRaceResult(race,'a',300);
+assert.deepEqual(race,[{id:'a',t:100},{id:'b',t:200}]);
+assert.deepEqual(logic.raceDeltas(race),[{id:'a',t:100,delta:0},{id:'b',t:200,delta:100}]);

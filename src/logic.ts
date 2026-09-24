@@ -51,3 +51,45 @@ export function angleDelta(a: number, b: number) { return (((a % 360 - b % 360 +
 export function avOffset(audio: number | null, light: number | null) {
   return audio !== null && light !== null && Number.isFinite(audio) && Number.isFinite(light) ? audio-light : null;
 }
+
+export type LevelReference = { b: number; g: number };
+export function isLevelReference(value: unknown): value is LevelReference {
+  const v = value as LevelReference | null;
+  return !!v && Number.isFinite(v.b) && Number.isFinite(v.g) && Math.abs(v.b) <= 180 && Math.abs(v.g) <= 90;
+}
+export function levelDifference(reading: LevelReference, reference: LevelReference | null) {
+  if (!reference || !isLevelReference(reading) || !isLevelReference(reference)) return null;
+  const y = angleDelta(reference.b, reading.b), x = angleDelta(reference.g, reading.g);
+  return { x, y, total: Math.hypot(x, y), match: Math.hypot(x, y) < 1 };
+}
+export type SensorSample = Partial<Record<'db'|'beta'|'gamma'|'motion', number>>;
+export function sensorSample(value: unknown): SensorSample {
+  if (!value || typeof value !== 'object') return {};
+  const result: SensorSample = {};
+  for (const key of ['db','beta','gamma','motion'] as const) {
+    const n = (value as SensorSample)[key];
+    if (typeof n === 'number' && Number.isFinite(n)) result[key] = n;
+  }
+  return result;
+}
+export type SensorStats = Partial<Record<keyof SensorSample, { min: number; max: number }>>;
+export function updateSensorStats(stats: SensorStats, sample: SensorSample): SensorStats {
+  const next = {...stats};
+  for (const key of Object.keys(sensorSample(sample)) as (keyof SensorSample)[]) {
+    const n = sample[key]!;
+    next[key] = { min: Math.min(stats[key]?.min ?? n, n), max: Math.max(stats[key]?.max ?? n, n) };
+  }
+  return next;
+}
+export function markDelay(value: unknown): number | null {
+  return typeof value === 'number' && [0, 1000, 3000, 5000].includes(value) ? value : null;
+}
+export type RaceResult = { id: string; t: number };
+export function addRaceResult(results: RaceResult[], id: string, time: unknown): RaceResult[] {
+  if (!id || typeof time !== 'number' || !Number.isSafeInteger(time) || time < 0 || results.some(r => r.id === id)) return results;
+  return [...results, {id, t: time}].sort((a,b) => a.t-b.t || a.id.localeCompare(b.id));
+}
+export function raceDeltas(results: RaceResult[]) {
+  const first = Math.min(...results.map(r => r.t));
+  return results.map(r => ({...r, delta: r.t-first}));
+}
