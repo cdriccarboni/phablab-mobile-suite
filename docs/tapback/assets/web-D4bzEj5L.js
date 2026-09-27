@@ -1,2 +1,0 @@
-import{i as e,n as t,r as n}from"./index-C_Ci5lWu.js";var r=class extends e{async processImage(e){throw this.createUnimplementedException()}createUnimplementedException(){return new t(`This method is not implemented on web.`,n.Unimplemented)}};export{r as TextRecognitionWeb};
-//# sourceMappingURL=web-D4bzEj5L.js.map
