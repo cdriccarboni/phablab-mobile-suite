@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { applyAndroidManifest, versionFor } from './p2-config.mjs';
 const platform=process.argv[2];
 const id=process.env.MOBILE_APP_ID||'phablabphone';
 const catalog=JSON.parse(readFileSync(new URL('../apps.json',import.meta.url),'utf8'));
@@ -24,15 +25,20 @@ if(platform==='android'){
   }
   const gradle=new URL('../android/app/build.gradle',import.meta.url);
   if(existsSync(gradle)){
+    const version=versionFor(id);
     let g=readFileSync(gradle,'utf8');
-    g=g.replace(/versionCode\s+\d+/,'versionCode 1').replace(/versionName\s+"[^"]+"/,'versionName "1.0.0"');
+    g=g.replace(/versionCode\s+\d+/,'versionCode '+version.versionCode).replace(/versionName\s+"[^"]+"/,'versionName "'+version.versionName+'"');
     writeFileSync(gradle,g);
   }
   const manifest=new URL('../android/app/src/main/AndroidManifest.xml',import.meta.url);
   if(existsSync(manifest)){
     let s=readFileSync(manifest,'utf8');
-    const perms=['android.permission.CAMERA','android.permission.RECORD_AUDIO'];
-    for(const p of perms)if(!s.includes(p))s=s.replace('<application',`<uses-permission android:name="${p}" />\n    <application`);
+    const scoped=applyAndroidManifest(s,id);
+    if(scoped)s=scoped;
+    else {
+      const perms=['android.permission.CAMERA','android.permission.RECORD_AUDIO'];
+      for(const p of perms)if(!s.includes(p))s=s.replace('<application',`<uses-permission android:name="${p}" />\n    <application`);
+    }
     writeFileSync(manifest,s);
   }
 }

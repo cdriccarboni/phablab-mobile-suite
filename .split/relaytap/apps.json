@@ -1,0 +1,11 @@
+[
+  {
+    "id": "relaytap",
+    "name": "RelayTap",
+    "emoji": "⏱️",
+    "tagline": "Race the signal.",
+    "subtitle": "Multi-phone reaction relay",
+    "category": "Games",
+    "share": "My RelayTap reaction time was {value}."
+  }
+]

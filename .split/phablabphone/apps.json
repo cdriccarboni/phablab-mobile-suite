@@ -1,0 +1,11 @@
+[
+  {
+    "id": "phablabphone",
+    "name": "PhabLabPhone",
+    "emoji": "🧪",
+    "tagline": "Turn your phones into a laboratory.",
+    "subtitle": "Pocket experiments with phone sensors",
+    "category": "Education",
+    "share": "I ran a phone-sensor experiment with PhabLabPhone."
+  }
+]
