@@ -6,8 +6,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  P2_IDS, P2_VERSION_CODE, P2_VERSION_NAME, P2_PERMISSIONS,
-  applyAndroidManifest, rewritePluginGradle,
+  P2_IDS, P2_VERSION_CODE, P2_VERSION_NAME, P2_PERMISSIONS, applyAndroidManifest,
 } from './p2-config.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,14 +29,6 @@ cpSync(join(root, 'android-base'), android, { recursive: true });
 chmodSync(join(android, 'gradlew'), 0o755);
 writeFileSync(join(android, 'local.properties'), `sdk.dir=${sdk.replaceAll('\\', '\\\\')}\n`);
 
-const seed = selected[0];
-run('npx', ['cap', 'sync', 'android'], root, {
-  ...process.env,
-  MOBILE_APP_ID: seed.id,
-  MOBILE_APP_NAME: seed.name,
-  VITE_APP_ID: seed.id,
-});
-
 const apkDir = join(root, 'release', 'apk');
 const aabDir = join(root, 'release', 'aab');
 mkdirSync(apkDir, { recursive: true });
@@ -58,6 +49,12 @@ function shortPermission(name) {
 for (const app of selected) {
   const pkg = `com.phablabphone.${app.id}`;
   console.log(`\n===== ${app.name} · ${pkg} · ${P2_VERSION_NAME} =====`);
+  run('npx', ['cap', 'sync', 'android'], root, {
+    ...process.env,
+    MOBILE_APP_ID: app.id,
+    MOBILE_APP_NAME: app.name,
+    VITE_APP_ID: app.id,
+  });
   const gradleFile = join(android, 'app', 'build.gradle');
   let gradle = readFileSync(gradleFile, 'utf8');
   gradle = gradle.replace(/applicationId "[^"]+"/, `applicationId "${pkg}"`)
@@ -78,9 +75,6 @@ for (const app of selected) {
   const manifestFile = join(android, 'app', 'src', 'main', 'AndroidManifest.xml');
   const rewritten = applyAndroidManifest(readFileSync(manifestFile, 'utf8'), app.id);
   writeFileSync(manifestFile, rewritten);
-
-  const pluginGradle = join(android, 'app', 'capacitor.build.gradle');
-  writeFileSync(pluginGradle, rewritePluginGradle(readFileSync(pluginGradle, 'utf8'), app.id));
 
   const configFile = join(android, 'app', 'src', 'main', 'assets', 'capacitor.config.json');
   mkdirSync(dirname(configFile), { recursive: true });
@@ -116,10 +110,12 @@ for (const app of selected) {
   if (!badging.stdout.includes(`versionCode='${P2_VERSION_CODE}'`) || !badging.stdout.includes(`versionName='${P2_VERSION_NAME}'`)) {
     throw new Error(`Mauvaise version pour ${app.id}: ${badging.stdout.split('\n')[0]}`);
   }
-  const uses = [...perms.stdout.matchAll(/uses-permission: name='([^']+)'/g)].map((match) => match[1]).sort();
+  const dynamic = `${pkg}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`;
+  const uses = [...perms.stdout.matchAll(/uses-permission: name='([^']+)'/g)].map((match) => match[1]);
+  const actual = uses.filter((name) => name !== dynamic).sort();
   const expected = [...P2_PERMISSIONS[app.id]].sort();
-  if (uses.join('\n') !== expected.join('\n')) {
-    throw new Error(`Permissions fusionnées inattendues pour ${app.id}\nattendu: ${expected.join(', ')}\nobtenu: ${uses.join(', ')}`);
+  if (actual.join('\n') !== expected.join('\n') || !uses.includes(dynamic)) {
+    throw new Error(`Permissions fusionnées inattendues pour ${app.id}\nattendu: ${expected.join(', ')} + ${dynamic}\nobtenu: ${uses.join(', ')}`);
   }
   const aabListing = spawnSync('jar', ['tf', aabTarget], { encoding: 'utf8' });
   const signedEntries = (aabListing.stdout || '').split('\n').filter((line) => /^META-INF\/.*\.(SF|RSA|DSA|EC)$/.test(line));
@@ -135,12 +131,14 @@ for (const app of selected) {
     aab: `aab/${aabName}`,
     apkSha256: apkSha,
     aabSha256: aabSha,
-    permissions: uses.map(shortPermission),
+    permissions: actual.map(shortPermission),
+    androidxDynamicReceiver: true,
     aabPlayUploadSigned: false,
     aabSignatureEntries: signedEntries,
     icon: badging.stdout.includes('application-icon'),
   });
-  console.log(`OK ${app.id} permissions=${uses.map(shortPermission).join(',')} apk=${apkSha.slice(0, 12)}`);
+  console.log(`OK ${app.id} permissions=${actual.map(shortPermission).join(',')} apk=${apkSha.slice(0, 12)}`);
+  writeFileSync(join(root, 'release', 'p2-report.json'), JSON.stringify(report, null, 2));
 }
 
 writeFileSync(join(root, 'release', 'p2-report.json'), JSON.stringify(report, null, 2));
