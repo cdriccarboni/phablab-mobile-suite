@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActionShare, BigMetric, RoomPanel, beep, fmt, haptic, sampleMic, speechStart, takePhotoDataUrl, useMicLevel, useMotion, useOrientation, useRoom } from './core';
+import { addRaceResult, applyLevelZero, emptySensorLinkStore, isLevelReference, isSensorLinkStore, isSoundStore, isSyncStore, isTwinStore, levelDifference, markDelay, raceDeltas, relativeMotion, sensorSample, suggestRaceThreshold, updateSensorStats, emptyCounter, reduceCounter, isCounterState, type SensorSample, type SensorStats } from './logic';
+import { loadLocal, writeLocal } from './runtime';
 
 export function AppRouter({appId}:{appId:string}) {
   switch(appId){
@@ -32,18 +34,125 @@ function WallCheck(){
 }
 
 function CaptionCast(){
-  const room=useRoom(); const [text,setText]=useState(''); const [listening,setListening]=useState(false); const stopRef=useRef<null|(()=>Promise<void>)>(null);
-  useEffect(()=>{if(room.lastMessage?.type==='caption')setText(String(room.lastMessage.payload||''));},[room.lastMessage]);
-  const start=async()=>{try{stopRef.current=await speechStart(t=>{setText(t);room.send('caption',t)});setListening(true);}catch(e){setText('Speech recognition unavailable on this device.');}};
-  const stop=async()=>{await stopRef.current?.();stopRef.current=null;setListening(false)};
-  return <><RoomPanel room={room}/><section className="panel"><div className="panel-title">LIVE CAPTION</div><div className="caption">{text||'Speak on one phone. Read on the other.'}</div><button className="primary" onClick={listening?stop:start}>{listening?'STOP':'START SPEAKING'}</button></section></>;
+  const room=useRoom();
+  const [captions,setCaptions]=useState<string[]>([]); const [status,setStatus]=useState<'idle'|'starting'|'listening'|'stopping'>('idle');
+  const [error,setError]=useState(''); const [fontSize,setFontSize]=useState(48); const [display,setDisplay]=useState(false);
+  const mounted=useRef(true);
+  const session=useRef<{cancelled:boolean;starting:boolean;cleanup:()=>Promise<void>}|null>(null);
+  const latestSent=useRef('');
+  const updateCaption=(value:string)=>{
+    const caption=value.trim().replace(/\s+/g,' ');
+    if(!caption)return;
+    setCaptions(previous=>previous[0]===caption?previous:[caption,...previous.filter(item=>item!==caption)].slice(0,7));
+  };
+  useEffect(()=>room.subscribe(message=>{
+    if(message.type==='caption'&&typeof message.payload==='string')updateCaption(message.payload);
+  }),[room.subscribe]);
+  const stop=()=>{
+    const active=session.current;if(!active)return;
+    active.cancelled=true;
+    if(mounted.current)setStatus('stopping');
+    void active.cleanup().finally(()=>{
+      if(!active.starting&&session.current===active){session.current=null;if(mounted.current)setStatus('idle')}
+    });
+  };
+  useEffect(()=>{
+    mounted.current=true;
+    const visibility=()=>{if(document.hidden)stop()};
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',stop);window.addEventListener('phab:pause',stop);
+    return()=>{mounted.current=false;stop();document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',stop);window.removeEventListener('phab:pause',stop)};
+  },[]);
+  const start=async()=>{
+    if(session.current||document.hidden||!mounted.current)return;
+    const listeners:{remove:()=>Promise<void>}[]=[];
+    let engine:typeof import('@capgo/capacitor-speech-recognition').SpeechRecognition|undefined;
+    let started=false; let cleaning=Promise.resolve();
+    const active={cancelled:false,starting:true,cleanup:()=>{
+      cleaning=cleaning.then(async()=>{
+        await Promise.all(listeners.splice(0).map(listener=>listener.remove().catch(()=>{})));
+        if(started&&engine){started=false;try{await engine.stop()}catch{if(mounted.current)setError('Could not stop speech recognition. Please close this screen and try again.')}}
+      });
+      return cleaning;
+    }};
+    session.current=active;setStatus('starting');setError('');latestSent.current='';
+    const current=()=>!active.cancelled&&mounted.current&&!document.hidden;
+    try{
+      engine=(await import('@capgo/capacitor-speech-recognition')).SpeechRecognition;
+      if(!current())return;
+      let permission=await engine.checkPermissions();
+      if(!current())return;
+      if(permission.speechRecognition!=='granted')permission=await engine.requestPermissions();
+      if(!current())return;
+      if(permission.speechRecognition!=='granted')throw new Error('Microphone / speech permission denied. You can still receive captions.');
+      listeners.push(await engine.addListener('partialResults',event=>{
+        if(!current())return;
+        const caption=(event.matches?.[0]||event.accumulatedText||event.accumulated||'').trim().replace(/\s+/g,' ');
+        if(!caption||caption===latestSent.current)return;
+        latestSent.current=caption;updateCaption(caption);room.send('caption',caption);
+      }));
+      if(!current())return;
+      listeners.push(await engine.addListener('error',event=>{
+        if(current()){setError(event.message||'Speech recognition failed. Try starting again.');stop()}
+      }));
+      if(!current())return;
+      listeners.push(await engine.addListener('listeningState',event=>{
+        if(current()&&(event.state==='stopped'||event.status==='stopped')){
+          if(event.reason==='error')setError('Speech recognition failed. Try starting again.');
+          stop();
+        }
+      }));
+      if(!current())return;
+      const onDevice=await engine.isOnDeviceRecognitionAvailable().catch(()=>({available:false}));
+      if(!current())return;
+      started=true;
+      await engine.start({partialResults:true,addPunctuation:true,popup:false,useOnDeviceRecognition:!!onDevice.available});
+      // A stop during native startup must also stop the late-started recognizer.
+      if(!current()){started=true;return}
+      setStatus('listening');
+    }catch(e){
+      if(current())setError(e instanceof Error?e.message:'Speech recognition unavailable. You can still receive captions.');
+      active.cancelled=true;
+    }finally{
+      if(!current()){
+        await active.cleanup();
+        if(session.current===active){session.current=null;if(mounted.current)setStatus('idle')}
+      }
+      active.starting=false;
+    }
+  };
+  return <>{!display&&<RoomPanel room={room}/>}<section className="panel" style={display?{position:'fixed',inset:0,zIndex:100,borderRadius:0,overflowY:'auto',display:'flex',flexDirection:'column',padding:'max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom))',background:'#020305'}:undefined}>
+    <div className="panel-title">LIVE CAPTION</div>
+    <button onClick={()=>setDisplay(value=>!value)}>{display?'EXIT DISPLAY':'FULL-SCREEN DISPLAY'}</button>
+    <label className="slider">CAPTION SIZE · {fontSize}px<input type="range" min="28" max="96" step="4" value={fontSize} onChange={event=>setFontSize(Number(event.target.value))}/></label>
+    <div className="caption" aria-live="polite" aria-atomic="true" style={{fontSize,lineHeight:1.2,overflowWrap:'anywhere',flex:display?1:undefined,flexShrink:0}}>{captions[0]||'Speak on one phone. Read on the other.'}</div>
+    {captions.length>1&&<div><div className="panel-title">RECENT CAPTIONS</div><ol style={{paddingLeft:24,overflowWrap:'anywhere',fontSize:20,lineHeight:1.5}}>{captions.slice(1).map(caption=><li key={caption}>{caption}</li>)}</ol></div>}
+    {error&&<p role="alert">{error}</p>}
+    <button className="primary" disabled={status==='stopping'} onClick={()=>status==='idle'?void start():stop()}>{status==='starting'?'CANCEL START':status==='listening'?'STOP SPEAKING':status==='stopping'?'STOPPING…':'START SPEAKING'}</button>
+    {!display&&<p>Receiving captions needs no microphone. Start speaking only on the phone sending captions.</p>}
+  </section></>;
 }
 
 function SignMe(){
   const room=useRoom(); const [text,setText]=useState('READY'); const [remote,setRemote]=useState('READY'); const [tone,setTone]=useState<'dark'|'light'|'alert'>('dark');
-  useEffect(()=>{if(room.lastMessage?.type==='sign'){const p=room.lastMessage.payload as any;setRemote(p?.text||'');setTone(p?.tone||'dark')}},[room.lastMessage]);
-  const send=()=>{room.send('sign',{text,tone});setRemote(text)};
-  return <><RoomPanel room={room}/><section className={`signscreen ${tone}`}><div>{remote}</div></section><section className="panel"><input value={text} onChange={e=>setText(e.target.value)} placeholder="MESSAGE"/><div className="seg"><button onClick={()=>setTone('dark')}>DARK</button><button onClick={()=>setTone('light')}>LIGHT</button><button onClick={()=>setTone('alert')}>ALERT</button></div><button className="primary" onClick={send}>SEND TO SCREENS</button></section></>;
+  const [display,setDisplay]=useState(false);
+  useEffect(()=>room.subscribe(message=>{
+    if(message.type!=='sign')return;
+    const payload=message.payload;
+    if(!payload||typeof payload!=='object'||!('text' in payload)||typeof payload.text!=='string'||!('tone' in payload))return;
+    if(payload.tone!=='dark'&&payload.tone!=='light'&&payload.tone!=='alert')return;
+    setRemote(payload.text);setTone(payload.tone);
+  }),[room.subscribe]);
+  const send=(message=text)=>{room.send('sign',{text:message,tone});setRemote(message)};
+  return <>{!display&&<RoomPanel room={room}/>}<section className={`signscreen ${tone}`} style={display?{position:'fixed',inset:0,zIndex:100,borderRadius:0,display:'flex',flexDirection:'column',gap:24,overflowY:'auto',justifyContent:'flex-start',padding:'max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom))'}:undefined}>
+    {display&&<button onClick={()=>setDisplay(false)} style={{fontSize:16,flexShrink:0}}>EXIT DISPLAY</button>}
+    <div aria-live="polite" aria-atomic="true" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxWidth:'100%',margin:display?'auto 0':undefined,fontSize:display?'clamp(48px, 16vw, 160px)':undefined}}>{remote}</div>
+  </section>{!display&&<section className="panel">
+    <button onClick={()=>setDisplay(true)}>DISPLAY MODE</button>
+    <div className="twocol">{['READY','STOP','✓','←','→','↑','↓'].map(preset=><button key={preset} onClick={()=>{setText(preset);send(preset)}}>{preset}</button>)}</div>
+    <input aria-label="Message" value={text} onChange={event=>setText(event.target.value)} placeholder="MESSAGE"/>
+    <div className="seg">{(['dark','light','alert'] as const).map(value=><button key={value} aria-pressed={tone===value} onClick={()=>setTone(value)}>{value.toUpperCase()}</button>)}</div>
+    <button className="primary" onClick={()=>send()}>SEND TO SCREENS</button>
+  </section>}</>;
 }
 
 function LagCheck(){
@@ -60,10 +169,103 @@ function TapBack(){
 }
 
 function PaperCheck(){
-  const [items,setItems]=useState<{t:string;done:boolean}[]>([]); const [busy,setBusy]=useState(false); const [raw,setRaw]=useState('');
-  const scan=async()=>{setBusy(true);try{const {Camera,CameraResultType,CameraSource}:any=await import('@capacitor/camera');const pic=await Camera.getPhoto({quality:88,resultType:CameraResultType.Uri,source:CameraSource.Camera,correctOrientation:true});const mod:any=await import('@capacitor-mlkit/text-recognition');const engine=mod.TextRecognition;const fn=engine.processImage||engine.recognizeText;const res=await fn.call(engine,{path:pic.path||pic.webPath});const text=res.text||res.blocks?.map((b:any)=>b.text).join('\n')||'';setRaw(text);setItems(text.split(/\n+/).map((t:string)=>t.replace(/^[-•□☐\s]+/,'').trim()).filter((t:string)=>t.length>1).map((t:string)=>({t,done:false})));}catch{setRaw('OCR unavailable here. Paste or type one item per line below.')}finally{setBusy(false)}};
-  const importRaw=()=>setItems(raw.split(/\n+/).map(t=>t.trim()).filter(Boolean).map(t=>({t,done:false})));
-  return <section className="panel"><div className="panel-title">PAPER → CHECKLIST</div><button className="primary" onClick={scan} disabled={busy}>{busy?'READING…':'PHOTOGRAPH LIST'}</button><textarea value={raw} onChange={e=>setRaw(e.target.value)} placeholder="Or paste / type one item per line"/><button onClick={importRaw}>MAKE CHECKLIST</button><div className="checklist">{items.map((x,i)=><label key={i}><input type="checkbox" checked={x.done} onChange={()=>setItems(a=>a.map((v,j)=>j===i?{...v,done:!v.done}:v))}/><span>{x.t}</span></label>)}</div>{items.length>0&&<ActionShare text={items.map(x=>`${x.done?'✓':'□'} ${x.t}`).join('\n')}/>}</section>;
+  type Item={id:string;t:string;done:boolean};
+  const storageKey='papercheck:current-list:v1';
+  const newId=()=>globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const [initial]=useState(()=>{
+    try{
+      const saved=localStorage.getItem(storageKey);
+      if(!saved)return {raw:'',items:[] as Item[],error:''};
+      const value=JSON.parse(saved);
+      if(value?.version!==1||typeof value.raw!=='string'||!Array.isArray(value.items)||!value.items.every((item:Item)=>item&&typeof item.id==='string'&&item.id.length>0&&typeof item.t==='string'&&typeof item.done==='boolean')||new Set(value.items.map((item:Item)=>item.id)).size!==value.items.length)throw new Error('Invalid saved list');
+      return {raw:value.raw as string,items:value.items as Item[],error:''};
+    }catch{return {raw:'',items:[] as Item[],error:'Could not restore the saved list. You can still create a checklist.'}}
+  });
+  const [list,setList]=useState({raw:initial.raw,items:initial.items});
+  const {raw,items}=list;
+  const [storageError,setStorageError]=useState(initial.error);
+  const [status,setStatus]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [photo,setPhoto]=useState('');
+  const [attempted,setAttempted]=useState(false);
+  const [newText,setNewText]=useState('');
+  const scanning=useRef(false);
+  useEffect(()=>{
+    try{localStorage.setItem(storageKey,JSON.stringify({version:1,...list}));setStorageError('')}
+    catch{setStorageError('Local save failed. Keep this page open and share your checklist to keep a copy.')}
+  },[list]);
+  const updateItems=(change:(previous:Item[])=>Item[])=>setList(previous=>({...previous,items:change(previous.items)}));
+  const scan=async()=>{
+    if(scanning.current)return;
+    scanning.current=true;setBusy(true);setAttempted(true);setStatus('Opening camera…');setPhoto('');
+    let captured=false;
+    try{
+      const {Camera,CameraResultType,CameraSource}=await import('@capacitor/camera');
+      const pic=await Camera.getPhoto({quality:88,resultType:CameraResultType.Uri,source:CameraSource.Camera,correctOrientation:true});
+      captured=true;setPhoto(pic.webPath||'');setList(previous=>({...previous,raw:''}));setStatus('Reading photo…');
+      const {Capacitor}=await import('@capacitor/core');
+      if(!Capacitor.isNativePlatform())throw new Error('OCR is available only in the Android or iOS app.');
+      if(!pic.path)throw new Error('The camera did not provide a local image path.');
+      const {TextRecognition}=await import('@capacitor-mlkit/text-recognition');
+      const result=await TextRecognition.processImage({path:pic.path});
+      const text=(result.text?.trim()||result.blocks?.map(block=>block.text).join('\n').trim()||'');
+      if(!text){setStatus('No text recognized. Take a clearer new photo, or paste/type the text below.');return}
+      setList(previous=>({...previous,raw:text}));setStatus('Text recognized. Review and edit it below, then make your checklist.');
+    }catch(error){
+      const detail=error instanceof Error?error.message:'The camera or OCR service is unavailable.';
+      setStatus(`${captured?'OCR failed':'Photo not captured'}: ${detail} Paste/type one item per line below, or try a new photo.`);
+    }finally{scanning.current=false;setBusy(false)}
+  };
+  const lines=raw.split(/\r?\n/).map(line=>line.replace(/^\s*(?:[-•□☐☑✓✔]|\[(?: |x|X)\]|\d+[.)])\s*/,'').trim()).filter(Boolean);
+  const importRaw=()=>{
+    if(!lines.length)return;
+    if(items.length&&!window.confirm('Replace the current checklist with the edited text?'))return;
+    updateItems(()=>lines.map(t=>({id:newId(),t,done:false})));setStatus('Checklist created. Changes save automatically on this device.');
+  };
+  const move=(id:string,direction:number)=>updateItems(previous=>{
+    const from=previous.findIndex(item=>item.id===id),to=from+direction;
+    if(from<0||to<0||to>=previous.length)return previous;
+    const next=[...previous];[next[from],next[to]]=[next[to],next[from]];return next;
+  });
+  const share=async()=>{
+    const text=items.map(item=>`${item.done?'✓':'□'} ${item.t}`).join('\n');
+    try{
+      if(navigator.share){await navigator.share({title:'PaperCheck checklist',text});setStatus('Checklist shared.')}
+      else if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);setStatus('Checklist copied to clipboard.')}
+      else setStatus('Sharing and clipboard are unavailable here. Copy the checklist text below.');
+    }catch(error){setStatus(error instanceof Error&&error.name==='AbortError'?'Sharing cancelled.':'Sharing failed. Copy the checklist text below.')}
+  };
+  return <section className="panel">
+    <div className="panel-title">PAPER → CHECKLIST · ULTIMATE</div>
+    <button className="primary" onClick={scan} disabled={busy}>{busy?'READING…':attempted?'RE-OCR · NEW PHOTO':'TAKE PHOTO'}</button>
+    {photo&&<img className="preview" src={photo} alt="Photographed list" style={{maxHeight:180}}/>}
+    {status&&<small role="status">{status}</small>}
+    <label htmlFor="papercheck-raw">Review text · one item per line</label>
+    <textarea id="papercheck-raw" value={raw} disabled={busy} onChange={event=>setList(previous=>({...previous,raw:event.target.value}))} placeholder="Recognized text appears here. You can also paste or type."/>
+    <button onClick={importRaw} disabled={busy||!lines.length}>{items.length?'REPLACE CHECKLIST FROM TEXT':'MAKE CHECKLIST'}</button>
+    <small className="muted">{items.filter(item=>item.done).length}/{items.length} checked · {storageError?'Not saved':'Autosaved on this device'}</small>
+    {(initial.error||storageError)&&<small role="alert">{storageError||initial.error}</small>}
+    <div style={{display:'grid',gap:8}}>{items.map((item,index)=><div key={item.id} style={{display:'grid',gap:6,padding:8,background:'#080c12',borderRadius:13}}>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <input type="checkbox" aria-label={`Complete item ${index+1}`} checked={item.done} style={{width:24,height:24,flexShrink:0}} onChange={()=>updateItems(previous=>previous.map(value=>value.id===item.id?{...value,done:!value.done}:value))}/>
+        <input aria-label={`Item ${index+1} text`} value={item.t} style={{minWidth:0,textDecoration:item.done?'line-through':undefined}} onChange={event=>updateItems(previous=>previous.map(value=>value.id===item.id?{...value,t:event.target.value}:value))}/>
+      </div>
+      <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
+        <button aria-label={`Move item ${index+1} up`} disabled={index===0} onClick={()=>move(item.id,-1)}>↑</button>
+        <button aria-label={`Move item ${index+1} down`} disabled={index===items.length-1} onClick={()=>move(item.id,1)}>↓</button>
+        <button aria-label={`Delete item ${index+1}`} onClick={()=>updateItems(previous=>previous.filter(value=>value.id!==item.id))}>DELETE</button>
+      </div>
+    </div>)}</div>
+    <form style={{display:'flex',gap:8}} onSubmit={event=>{event.preventDefault();if(!newText.trim())return;updateItems(previous=>[...previous,{id:newId(),t:newText.trim(),done:false}]);setNewText('')}}>
+      <input aria-label="New checklist item" placeholder="New item" value={newText} style={{minWidth:0}} onChange={event=>setNewText(event.target.value)}/>
+      <button disabled={!newText.trim()} type="submit">ADD</button>
+    </form>
+    <div className="twocol">
+      <button disabled={busy||!items.length} onClick={()=>{updateItems(previous=>previous.map(item=>({...item,id:newId(),done:false})));setStatus('Working copy created with new item IDs and all items unchecked. It is now your saved current list.')}}>DUPLICATE AS NEW</button>
+      <button disabled={busy||(!items.length&&!raw&&!newText&&!photo)} onClick={()=>{if(!window.confirm('Reset the current list and draft text?'))return;setList({raw:'',items:[]});setNewText('');setPhoto('');setAttempted(false);setStatus('List reset.')}}>RESET LIST</button>
+    </div>
+    {items.length>0&&<><button className="ghost" onClick={share}>SHARE CHECKLIST ↗</button><details><summary>Copy checklist text</summary><textarea aria-label="Checklist text to copy" readOnly value={items.map(item=>`${item.done?'✓':'□'} ${item.t}`).join('\n')}/></details></>}
+  </section>;
 }
 
 function CompareSound(){
@@ -74,17 +276,112 @@ function CompareSound(){
 }
 
 function ShowMeThat(){
-  const room=useRoom(); const [img,setImg]=useState('');
-  useEffect(()=>{if(room.lastMessage?.type==='image')setImg(String(room.lastMessage.payload||''));},[room.lastMessage]);
-  const shoot=async()=>{const data=await takePhotoDataUrl();if(data){setImg(data);room.send('image',data)}};
-  return <><RoomPanel room={room}/><section className="panel"><button className="primary" onClick={shoot}>TAKE & SEND PHOTO</button>{img?<img className="fullimage" src={img}/>:<div className="empty">The received image appears here full-screen.</div>}</section></>;
+  type Marker={x:number;y:number;shape:'ARROW'|'CIRCLE';color:string};
+  const colors=['#ff345f','#ffdd3c','#16c8ff'];
+  const room=useRoom();
+  const [img,setImg]=useState(''); const [marker,setMarker]=useState<Marker|null>(null);
+  const [shape,setShape]=useState<Marker['shape']>('ARROW'); const [color,setColor]=useState(colors[0]);
+  const [busy,setBusy]=useState(false); const [ready,setReady]=useState(false); const [status,setStatus]=useState('');
+  const mounted=useRef(false); const generation=useRef(0); const pending=useRef(false);
+  const validPhoto=(value:unknown):value is string=>typeof value==='string'&&value.length<=12_000_000&&/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+  const validMarker=(value:unknown):value is Marker|null=>{
+    if(value===null)return true;
+    if(!value||typeof value!=='object')return false;
+    const m=value as Record<string,unknown>;
+    return typeof m.x==='number'&&Number.isFinite(m.x)&&m.x>=0&&m.x<=1&&typeof m.y==='number'&&Number.isFinite(m.y)&&m.y>=0&&m.y<=1&&(m.shape==='ARROW'||m.shape==='CIRCLE')&&typeof m.color==='string'&&colors.includes(m.color);
+  };
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;generation.current++}},[]);
+  useEffect(()=>{
+    generation.current++;pending.current=false;setBusy(false);setImg('');setMarker(null);setReady(false);setStatus('');
+  },[room.code,room.role]);
+  useEffect(()=>room.subscribe(message=>{
+    if(message.type!=='image'&&message.type!=='image-annotation')return;
+    let photo:unknown=message.payload; let mark:unknown=null;
+    if(message.type==='image-annotation'){
+      if(!message.payload||typeof message.payload!=='object'){setStatus('Received an invalid annotation. Ask the sender to send again.');return}
+      const payload=message.payload as Record<string,unknown>;photo=payload.photo;mark=payload.marker;
+    }
+    if(!validPhoto(photo)||!validMarker(mark)){setStatus('Received an invalid photo or marker. Ask the sender to send again.');return}
+    generation.current++;pending.current=false;setBusy(false);
+    setImg(previous=>{if(previous!==photo)setReady(false);return photo});setMarker(mark);setStatus('Photo received. Tap to point, then send.');
+  }),[room.subscribe]);
+  const connected=(room.status==='host'||room.status==='guest')&&room.members>0;
+  const shoot=async()=>{
+    if(pending.current)return;
+    pending.current=true;setBusy(true);setStatus('Opening camera…');const token=++generation.current;
+    try{
+      const photo=await takePhotoDataUrl();
+      if(!mounted.current||token!==generation.current)return;
+      if(!validPhoto(photo)){setStatus('No usable photo. Camera cancelled or unavailable; check camera permission and try again.');return}
+      setImg(photo);setMarker(null);setReady(false);
+      setStatus('Photo ready. Tap to point, then send.');
+    }catch{if(mounted.current&&token===generation.current)setStatus('Camera failed. Check camera permission and try again.')}
+    finally{if(mounted.current&&token===generation.current){pending.current=false;setBusy(false)}}
+  };
+  const send=()=>{
+    if(!ready||!validPhoto(img)||!validMarker(marker)||!connected)return;
+    // Self-contained annotations also work for peers that missed the original photo.
+    if(marker)room.send('image-annotation',{photo:img,marker});
+    else room.send('image',img);
+    setStatus('Sent to the room.');
+  };
+  return <><RoomPanel room={room}/><section className="panel">
+    <div className="panel-title">SHOW ME THAT · TAP TO POINT</div>
+    <button className="primary" onClick={shoot} disabled={busy}>{busy?'OPENING CAMERA…':img?'NEW PHOTO':'TAKE PHOTO'}</button>
+    {img?<>
+      <p id="showmethat-help">Tap the photo to place a marker. Use arrow keys to move it when the photo is focused.</p>
+      <div style={{position:'relative',display:'grid',placeItems:'center',background:'#000',borderRadius:14}}>
+        <div style={{position:'relative',maxWidth:'100%',lineHeight:0}}>
+          <img key={img} src={img} alt="Shared photo; tap to point" draggable={false} tabIndex={0} role="button" aria-describedby="showmethat-help"
+            style={{display:'block',maxWidth:'100%',maxHeight:'55vh',width:'auto',height:'auto',objectFit:'contain',cursor:'crosshair',touchAction:'manipulation'}}
+            onLoad={()=>setReady(true)} onError={()=>{setReady(false);setStatus('This photo could not be displayed. Try a new photo.')}}
+            onClick={event=>{if(!ready)return;const r=event.currentTarget.getBoundingClientRect();if(!r.width||!r.height)return;setMarker({x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height)),shape,color});setStatus('Marker ready. Send to share it.')}}
+            onKeyDown={event=>{if(!ready||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter',' '].includes(event.key))return;event.preventDefault();const x=marker?.x??.5,y=marker?.y??.5;setMarker({x:Math.max(0,Math.min(1,x+(event.key==='ArrowRight'?.02:event.key==='ArrowLeft'?-.02:0))),y:Math.max(0,Math.min(1,y+(event.key==='ArrowDown'?.02:event.key==='ArrowUp'?-.02:0))),shape,color});setStatus('Marker ready. Send to share it.')}}/>
+          {ready&&marker&&<svg aria-label={`${marker.shape.toLowerCase()} marker`} width="48" height="48" viewBox="0 0 48 48" style={{position:'absolute',left:`${marker.x*100}%`,top:`${marker.y*100}%`,transform:marker.shape==='CIRCLE'?'translate(-50%, -50%)':`translate(${marker.x>.5?'-100%':'0'}, ${marker.y>.5?'-100%':'0'}) scale(${marker.x>.5?-1:1}, ${marker.y>.5?-1:1})`,pointerEvents:'none',overflow:'visible',filter:'drop-shadow(0 1px 2px #000)'}}>
+            {marker.shape==='CIRCLE'?<><circle cx="24" cy="24" r="18" fill="none" stroke="white" strokeWidth="8"/><circle cx="24" cy="24" r="18" fill="none" stroke={marker.color} strokeWidth="4"/></>:<path d="M 1 1 L 6 24 L 13 17 L 34 38 L 41 31 L 20 10 L 27 3 Z" fill={marker.color} stroke="white" strokeWidth="2" strokeLinejoin="round"/>}
+          </svg>}
+        </div>
+      </div>
+      <div className="twocol">{(['ARROW','CIRCLE'] as const).map(value=><button key={value} aria-pressed={shape===value} style={{outline:shape===value?'2px solid white':undefined}} onClick={()=>{setShape(value);setMarker(previous=>previous?{...previous,shape:value}:null)}}>{value}</button>)}</div>
+      <div style={{display:'flex',gap:10}}>{colors.map((value,index)=><button key={value} aria-label={['Red marker','Yellow marker','Blue marker'][index]} aria-pressed={color===value} style={{minWidth:48,minHeight:48,background:value,outline:color===value?'3px solid white':undefined}} onClick={()=>{setColor(value);setMarker(previous=>previous?{...previous,color:value}:null)}}/>)}</div>
+      <div className="twocol"><button disabled={!marker} onClick={()=>{setMarker(null);setStatus('Marker cleared locally. Send photo to clear it in the room.')}}>CLEAR MARK</button><button className="primary" disabled={!ready||busy||!connected} onClick={send}>{marker?'SEND ANNOTATION':'SEND PHOTO'}</button></div>
+      {!connected&&<small>Connect another phone to send this photo.</small>}
+    </>:<div className="empty">Take a photo or join a room to receive one.</div>}
+    {status&&<small role="status" aria-live="polite">{status}</small>}
+  </section></>;
 }
 
 function CountTogether(){
-  const room=useRoom(); const [count,setCount]=useState(0);
-  useEffect(()=>{if(room.lastMessage?.type==='count')setCount(Number(room.lastMessage.payload)||0)},[room.lastMessage]);
-  const set=(n:number)=>{setCount(n);room.send('count',n);haptic()};
-  return <><RoomPanel room={room}/><section className="counter"><button onClick={()=>set(count-1)}>−</button><strong>{count}</strong><button onClick={()=>set(count+1)}>+</button></section><button className="ghost" onClick={()=>set(0)}>RESET</button></>;
+  const room=useRoom(); const [counter,setCounter]=useState(emptyCounter);
+  const current=useRef(counter);
+  useEffect(()=>{current.current=emptyCounter();setCounter(current.current)},[room.code,room.role]);
+  useEffect(()=>room.subscribe(message=>{
+    if(room.role==='host'&&message.type==='count-action'){
+      current.current=reduceCounter(current.current,message.payload,message.from);
+      setCounter(current.current);
+      room.send('count-state',current.current);
+    }else if(room.role==='guest'&&message.type==='count-state'&&message.from===room.presence[0]&&isCounterState(message.payload)&&message.payload.revision>=current.current.revision){
+      current.current=message.payload;
+      setCounter(current.current);
+    }
+  }),[room.subscribe,room.send,room.role,room.presence]);
+  useEffect(()=>{
+    if(room.role==='host')room.send('count-state',current.current);
+  },[room.send,room.role,room.code,room.presence,room.members]);
+  const act=(action:{delta?:number;reset?:boolean;revision?:number})=>{
+    if(room.role==='guest')room.send('count-action',action);
+    else{
+      current.current=reduceCounter(current.current,action,room.identity);
+      setCounter(current.current);
+      if(room.role==='host')room.send('count-state',current.current);
+    }
+    haptic();
+  };
+  const reset=()=>{
+    const {value,revision}=current.current;
+    if(window.confirm(`Reset the count (${value}) to zero?`))act({reset:true,revision});
+  };
+  return <><RoomPanel room={room}/><section className="counter"><button onClick={()=>act({delta:-1})}>−</button><strong>{counter.value}</strong><button onClick={()=>act({delta:1})}>+</button></section><button className="ghost" onClick={reset}>RESET</button>{counter.history.length>0&&<section className="panel"><div className="panel-title">RECENT HISTORY</div><ul>{counter.history.map((entry,i)=><li key={counter.revision-i}>{entry}</li>)}</ul></section>}</>;
 }
 
 function PhabLabPhone(){
@@ -98,36 +395,204 @@ function PhabLabPhone(){
 }
 
 function TwinLevel(){
-  const room=useRoom(); const ori=useOrientation(); const [active,setActive]=useState(false); const stopRef=useRef<null|(()=>void)>(null); const [ref,setRef]=useState<{b:number;g:number}|null>(null);
-  useEffect(()=>{if(room.lastMessage?.type==='levelref')setRef(room.lastMessage.payload as any)},[room.lastMessage]);
-  useEffect(()=>()=>stopRef.current?.(),[]);
-  const toggle=async()=>{if(active){stopRef.current?.();stopRef.current=null;setActive(false)}else{stopRef.current=await ori.start();setActive(true)}};
-  const delta=ref?Math.hypot(ori.beta-ref.b,ori.gamma-ref.g):null;
-  return <><RoomPanel room={room}/><section className="panel"><button onClick={toggle}>{active?'STOP SENSOR':'START LEVEL'}</button><button className="primary" disabled={!active} onClick={()=>{const r={b:ori.beta,g:ori.gamma};setRef(r);room.send('levelref',r)}}>CAPTURE REFERENCE</button><div className="metrics"><BigMetric value={fmt(ori.beta)+'°'} label="TILT Y"/><BigMetric value={fmt(ori.gamma)+'°'} label="TILT X"/></div>{delta!=null&&<><BigMetric value={fmt(delta,2)+'°'} label={delta<1?'MATCH ✓':'DIFFERENCE'}/><ActionShare text={`TwinLevel difference: ${fmt(delta,2)}°.`}/></>}</section></>;
+  const room=useRoom(); const ori=useOrientation();
+  const loaded=useState(()=>loadLocal('twinlevel:v1',{version:1 as const,reference:null,zero:null},isTwinStore))[0];
+  const [store,setStore]=useState(loaded.state); const [restoreNote]=useState(loaded.invalid?'Could not restore the saved angle. Starting empty.':''); const [saveError,setSaveError]=useState('');
+  const [starting,setStarting]=useState(false); const pending=useRef(false); const generation=useRef(0);
+  useEffect(()=>{setSaveError(writeLocal('twinlevel:v1',store)?'':'Could not save on this phone.');},[store]);
+  useEffect(()=>room.subscribe(message=>{const reference=message.payload;if(message.type==='levelref'&&isLevelReference(reference))setStore(previous=>({...previous,reference}))}),[room.subscribe]);
+  useEffect(()=>{
+    const stop=()=>{generation.current++;pending.current=false;setStarting(false);ori.stop()};
+    const visibility=()=>{if(document.hidden)stop()};
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('phab:pause',stop);window.addEventListener('pagehide',stop);
+    return()=>{document.removeEventListener('visibilitychange',visibility);window.removeEventListener('phab:pause',stop);window.removeEventListener('pagehide',stop);stop()};
+  },[ori.stop]);
+  const toggle=async()=>{
+    if(ori.active||pending.current){generation.current++;pending.current=false;setStarting(false);ori.stop();return}
+    const id=++generation.current;pending.current=true;setStarting(true);
+    try{await ori.start()}catch{/* The hook exposes the sensor error. */}
+    finally{if(generation.current===id){pending.current=false;setStarting(false)}}
+  };
+  const raw=isLevelReference({b:ori.beta,g:ori.gamma})?{b:ori.beta,g:ori.gamma}:null;
+  const shown=raw?applyLevelZero(raw,store.zero):null;
+  const valid=!!(ori.active&&shown);
+  const delta=valid&&shown?levelDifference(shown,store.reference):null;
+  const capture=()=>{if(!valid||!shown)return;setStore(previous=>({...previous,reference:shown}));room.send('levelref',shown)};
+  const direction=(value:number,axis:'X'|'Y')=>Math.abs(value)<.01?'ALIGNED':axis==='X'?(value>0?'→ INCREASE X':'← DECREASE X'):(value>0?'↑ INCREASE Y':'↓ DECREASE Y');
+  const share=delta?delta.match?`TwinLevel matched two surfaces to within ${fmt(delta.total,2)}°.`:`TwinLevel difference: ${fmt(delta.total,2)}°.`:'';
+  return <><RoomPanel room={room}/><section className="panel">
+    <p>Capture an angle here. Move this phone, or send the angle and match it there. Values are degrees.</p>
+    <button onClick={toggle}>{starting?'CANCEL START':ori.active?'STOP SENSOR':'START LEVEL'}</button>
+    {ori.error&&<p role="alert">{ori.error}</p>}
+    <div className="twocol"><button disabled={!raw} onClick={()=>raw&&setStore(previous=>({...previous,zero:raw}))}>ZERO HERE</button><button disabled={!store.zero} onClick={()=>setStore(previous=>({...previous,zero:null}))}>CLEAR ZERO</button></div>
+    <button className="primary" disabled={!valid} onClick={capture}>CAPTURE REFERENCE</button>
+    <button className="ghost" disabled={!store.reference} onClick={()=>setStore(previous=>({...previous,reference:null}))}>CLEAR REFERENCE</button>
+    <div className="metrics"><BigMetric value={fmt(shown?.g??NaN)+'°'} label="TILT X"/><BigMetric value={fmt(shown?.b??NaN)+'°'} label="TILT Y"/></div>
+    {store.reference&&<p className="muted">Reference X {fmt(store.reference.g,2)}° · Y {fmt(store.reference.b,2)}°{store.zero?' · local zero on':''}</p>}
+    {delta&&<><div className="metrics"><BigMetric value={fmt(delta.x,2)+'°'} label={'Δ X · '+direction(delta.x,'X')}/><BigMetric value={fmt(delta.y,2)+'°'} label={'Δ Y · '+direction(delta.y,'Y')}/></div><BigMetric value={fmt(delta.total,2)+'°'} label={delta.match?'TOTAL · UNDER 1°':'TOTAL DIFFERENCE'}/><ActionShare text={share}/></>}
+    <p className="muted">Works offline on this phone. Pairing needs internet and only copies the captured degrees. ZERO HERE is a local offset, not a certified calibration. UNDER 1° is a display threshold, not a measured accuracy. Hiding the app stops the sensor. Reconnect is manual.</p>
+    {restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}
+    <p className="muted">{saveError?'':'Reference saved on this phone.'}</p>
+  </section></>;
 }
 
 function SensorLink(){
-  const room=useRoom(); const mic=useMicLevel(); const ori=useOrientation(); const motion=useMotion(); const [running,setRunning]=useState(false); const [remote,setRemote]=useState<any>(null); const stops=useRef<(()=>void)[]>([]);
-  useEffect(()=>{if(room.lastMessage?.type==='sensor')setRemote(room.lastMessage.payload)},[room.lastMessage]);
-  useEffect(()=>{if(!running)return;const id=setInterval(()=>room.send('sensor',{db:mic.db,beta:ori.beta,gamma:ori.gamma,motion:motion.magnitude}),160);return()=>clearInterval(id)},[running,mic.db,ori.beta,ori.gamma,motion.magnitude,room]);
-  const toggle=async()=>{if(running){mic.stop();stops.current.forEach(s=>s());stops.current=[];setRunning(false)}else{await mic.start();stops.current=[await ori.start(),await motion.start()];setRunning(true)}};
-  const data=remote||{db:mic.db,beta:ori.beta,gamma:ori.gamma,motion:motion.magnitude};
-  return <><RoomPanel room={room}/><section className="panel"><button className="primary" onClick={toggle}>{running?'STOP STREAM':'STREAM THIS PHONE'}</button><div className="metrics four"><BigMetric value={fmt(data.db)+' dBFS'} label="SOUND"/><BigMetric value={fmt(data.beta)+'°'} label="TILT"/><BigMetric value={fmt(data.gamma)+'°'} label="ROLL"/><BigMetric value={fmt(data.motion,2)} label="MOTION"/></div></section></>;
+  const room=useRoom(); const mic=useMicLevel(); const ori=useOrientation(); const motion=useMotion();
+  const loaded=useState(()=>loadLocal('sensorlink:v1',emptySensorLinkStore(),isSensorLinkStore))[0];
+  const [selected,setSelected]=useState(loaded.state.selected); const [tare,setTare]=useState<number|null>(loaded.state.tare);
+  const [running,setRunning]=useState(false); const [starting,setStarting]=useState(false);
+  const [remote,setRemote]=useState<SensorSample|null>(loaded.state.lastRemote); const [stats,setStats]=useState<SensorStats>(loaded.state.stats);
+  const [restoreNote]=useState(loaded.invalid?'Could not restore the saved sensor session. Starting empty.':''); const [saveError,setSaveError]=useState('');
+  const generation=useRef(0); const streaming=useRef(false); const pending=useRef(false); const timer=useRef<ReturnType<typeof setInterval>|null>(null);
+  const stop=()=>{generation.current++;streaming.current=false;pending.current=false;if(timer.current!==null)clearInterval(timer.current);timer.current=null;mic.stop();ori.stop();motion.stop();setRunning(false);setStarting(false)};
+  useEffect(()=>{
+    const visibility=()=>{if(document.hidden)stop()};
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('phab:pause',stop);window.addEventListener('pagehide',stop);
+    return()=>{document.removeEventListener('visibilitychange',visibility);window.removeEventListener('phab:pause',stop);window.removeEventListener('pagehide',stop);stop()};
+  },[mic.stop,ori.stop,motion.stop]);
+  useEffect(()=>{
+    setSaveError(writeLocal('sensorlink:v1',{version:1,selected,tare,lastRemote:remote,stats})?'':'Could not save on this phone.');
+  },[selected,tare,remote,stats]);
+  useEffect(()=>room.subscribe(message=>{
+    if(message.type!=='sensor')return;
+    const sample=sensorSample(message.payload);if(!Object.keys(sample).length)return;
+    setRemote(sample);setStats(previous=>updateSensorStats(previous,sample));
+  }),[room.subscribe]);
+  const motionValue=motion.active?relativeMotion(motion.magnitude,tare):null;
+  const local=sensorSample({...(selected.sound&&mic.active?{db:mic.db}:{}),...(selected.tilt&&ori.active?{beta:ori.beta,gamma:ori.gamma}:{}),...(selected.motion&&motionValue!==null?{motion:motionValue}:{})});
+  const latest=useRef({sample:{} as SensorSample,send:room.send});
+  latest.current={sample:local,send:room.send};
+  useEffect(()=>{
+    if(!running)return;
+    timer.current=setInterval(()=>{const {sample,send}=latest.current;if(streaming.current&&Object.keys(sample).length)send('sensor',sample)},160);
+    return()=>{if(timer.current!==null)clearInterval(timer.current);timer.current=null};
+  },[running]);
+  useEffect(()=>{if(running&&!starting&&!mic.active&&!ori.active&&!motion.active)stop()},[running,starting,mic.active,ori.active,motion.active]);
+  const start=async()=>{
+    if(pending.current||streaming.current||!Object.values(selected).some(Boolean))return;
+    const id=++generation.current;pending.current=true;setStarting(true);
+    // Begin all selected permission requests in the user gesture; each hook owns its cleanup.
+    const results=await Promise.allSettled([...(selected.sound?[mic.start()]:[]),...(selected.tilt?[ori.start()]:[]),...(selected.motion?[motion.start()]:[])]);
+    if(id!==generation.current)return;
+    pending.current=false;setStarting(false);
+    if(results.some(result=>result.status==='fulfilled')){streaming.current=true;setRunning(true)}else stop();
+  };
+  const fields=[['db','SOUND',' dBFS'],['gamma','TILT X','°'],['beta','TILT Y','°'],['motion',tare===null?'MOTION':'MOTION − TARE',' m/s²']] as const;
+  const metrics=(sample:SensorSample|null)=>sample&&Object.keys(sample).length?<div className="metrics four">{fields.filter(([key])=>sample[key]!==undefined).map(([key,label,unit])=><BigMetric key={key} value={fmt(sample[key]!,2)+unit} label={label}/>)}</div>:<p>No sample yet.</p>;
+  return <><RoomPanel room={room}/><section className="panel">
+    <p>Leave this phone by what you want to watch. Read it from the other phone. SOUND is dBFS, not dB SPL. TILT is degrees. MOTION is m/s² from acceleration including gravity, until you tare.</p>
+    <div className="checklist">{(['sound','tilt','motion'] as const).map(key=><label key={key}><input type="checkbox" checked={selected[key]} disabled={running||starting} onChange={event=>{const checked=event.target.checked;setSelected(previous=>({...previous,[key]:checked}))}}/>{key.toUpperCase()}</label>)}</div>
+    <button className="primary" disabled={!running&&!starting&&!Object.values(selected).some(Boolean)} onClick={running||starting?stop:start}>{starting?'STOP · STARTING':running?'STOP STREAM':'START STREAM'}</button>
+    <div className="twocol"><button disabled={!motion.active||!Number.isFinite(motion.magnitude)} onClick={()=>setTare(motion.magnitude)}>TARE MOTION</button><button disabled={tare===null} onClick={()=>setTare(null)}>CLEAR TARE</button></div>
+    {tare!==null&&<p className="muted">Tare subtracts {fmt(tare,2)} m/s² on this phone. The stream sends that relative value. Not a calibrated accelerometer.</p>}
+    {selected.sound&&mic.error&&<p role="alert">SOUND · {mic.error}</p>}{selected.tilt&&ori.error&&<p role="alert">TILT · {ori.error}</p>}{selected.motion&&motion.error&&<p role="alert">MOTION · {motion.error}</p>}
+    <div className="panel-title">THIS PHONE</div>{metrics(Object.keys(local).length?local:null)}
+    <div className="panel-title">LAST REMOTE SAMPLE</div>{metrics(remote)}
+    <div className="panel-title">REMOTE SESSION · MIN / MAX</div>{fields.filter(([key])=>stats[key]).map(([key,label,unit])=><div key={key} className="muted">{label} · {fmt(stats[key]!.min,2)} / {fmt(stats[key]!.max,2)}{unit}</div>)}
+    <button className="ghost" onClick={()=>{setRemote(null);setStats({})}}>RESET REMOTE SESSION</button>
+    <p className="muted">Numbers on this phone work offline. The other phone updates only while the room is connected. Samples are sent about every 160 ms while streaming; that interval was not measured on a device. Hiding the app stops the microphone and sensors. Reconnect is manual, with no retry loop.</p>
+    {restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}
+    <p className="muted">{saveError?'':'Selection, tare and last remote sample saved on this phone.'}</p>
+  </section></>;
 }
 
 function SyncMark(){
-  const room=useRoom(); const [flash,setFlash]=useState(false); const [last,setLast]=useState<number|null>(null);
-  const fire=async(delay=1200)=>{setTimeout(async()=>{setFlash(true);await Promise.all([beep(1000,.08),haptic()]);setLast(Date.now());setTimeout(()=>setFlash(false),180)},delay)};
-  useEffect(()=>{if(room.lastMessage?.type==='syncmark'){const d=Number((room.lastMessage.payload as any)?.delay)||1200;fire(d)}},[room.lastMessage]);
-  const go=()=>{room.send('syncmark',{delay:1200});fire(1200)};
-  return <><RoomPanel room={room}/><section className={`syncstage ${flash?'flash':''}`}><button className="mega" onClick={go}>SYNC MARK</button><p>All joined phones fire a short flash + beep after the same relative countdown.</p>{last&&<BigMetric value={new Date(last).toLocaleTimeString()} label="LAST MARK"/>}</section></>;
+  const room=useRoom();
+  const loaded=useState(()=>loadLocal('syncmark:v1',{version:1 as const,delay:1000,marks:[] as number[]},isSyncStore))[0];
+  const [delay,setDelay]=useState(loaded.state.delay); const [flash,setFlash]=useState(false); const [marks,setMarks]=useState<number[]>(loaded.state.marks);
+  const [restoreNote]=useState(loaded.invalid?'Could not restore the saved marks. Starting empty.':''); const [saveError,setSaveError]=useState('');
+  useEffect(()=>{setSaveError(writeLocal('syncmark:v1',{version:1,delay,marks})?'':'Could not save on this phone.');},[delay,marks]);
+  const timers=useRef(new Set<ReturnType<typeof setTimeout>>()); const flashTimer=useRef<ReturnType<typeof setTimeout>|null>(null); const mounted=useRef(false);
+  const later=(callback:()=>void,ms:number)=>{const timer=setTimeout(()=>{timers.current.delete(timer);if(mounted.current&&!document.hidden)callback()},ms);timers.current.add(timer);return timer};
+  const fire=(ms:number)=>{
+    if(!mounted.current||document.hidden)return;
+    later(()=>{
+      const now=Date.now();setMarks(previous=>[now,...previous].slice(0,8));setFlash(true);
+      if(flashTimer.current!==null){clearTimeout(flashTimer.current);timers.current.delete(flashTimer.current)}
+      flashTimer.current=later(()=>{setFlash(false);flashTimer.current=null},180);
+      void Promise.allSettled([beep(1000,.08),haptic()]);
+    },ms);
+  };
+  useEffect(()=>{
+    mounted.current=true;
+    const cancel=()=>{timers.current.forEach(clearTimeout);timers.current.clear();flashTimer.current=null;if(mounted.current)setFlash(false)};
+    const visibility=()=>{if(document.hidden)cancel()};
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',cancel);window.addEventListener('phab:pause',cancel);
+    return()=>{mounted.current=false;cancel();document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',cancel);window.removeEventListener('phab:pause',cancel)};
+  },[]);
+  useEffect(()=>room.subscribe(message=>{
+    if(message.type!=='syncmark')return;
+    const payload=message.payload;
+    const ms=markDelay(payload&&typeof payload==='object'&&'delay' in payload?payload.delay:undefined);
+    if(ms!==null)fire(ms);
+  }),[room.subscribe]);
+  const go=()=>{if(document.hidden)return;room.send('syncmark',{delay});fire(delay)};
+  return <><RoomPanel room={room}/><section className={`syncstage ${flash?'flash':''}`}><div className="twocol">{[0,1000,3000,5000].map(ms=><button key={ms} aria-pressed={delay===ms} onClick={()=>setDelay(ms)}>{ms/1000} s</button>)}</div><button className="mega" onClick={go}>SYNC MARK</button><p>Approximate sync marker, not professional timecode. Flash + beep after each phone’s own countdown, in milliseconds. No shared clock and no latency were measured. This phone marks even offline. Other phones mark only if they receive the message. Hiding the app cancels a pending mark. Reconnect is manual.</p>{marks.length>0&&<><div className="panel-title">FIRED MARKS · LOCAL TIME</div><ol>{marks.map((time,index)=><li key={`${time}-${index}`}><time dateTime={new Date(time).toISOString()}>{new Date(time).toLocaleTimeString()}.{String(time%1000).padStart(3,'0')}</time></li>)}</ol><button className="ghost" onClick={()=>setMarks([])}>CLEAR MARKS</button></>}{restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}<p className="muted">{saveError?'':'Countdown and marks saved on this phone.'}</p></section></>;
 }
 
 function SoundRace(){
-  const room=useRoom(); const [armed,setArmed]=useState(false); const [heard,setHeard]=useState<{id:string;t:number}[]>([]); const stopRef=useRef<()=>void>(()=>{});
-  useEffect(()=>{if(room.lastMessage?.type==='heard'){const p=room.lastMessage.payload as any;setHeard(v=>[...v,p].sort((a,b)=>a.t-b.t))}},[room.lastMessage]);
-  const arm=async()=>{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const ctx=new AudioContext();const an=ctx.createAnalyser();an.fftSize=512;ctx.createMediaStreamSource(stream).connect(an);const d=new Float32Array(an.fftSize);let raf=0,done=false;const tick=()=>{an.getFloatTimeDomainData(d);let s=0;for(const v of d)s+=v*v;if(!done&&Math.sqrt(s/d.length)>.18){done=true;const p={id:room.code||'LOCAL',t:Date.now()};setHeard(v=>[...v,p]);room.send('heard',p);haptic();stopRef.current();return}raf=requestAnimationFrame(tick)};stopRef.current=()=>{cancelAnimationFrame(raf);stream.getTracks().forEach(t=>t.stop());ctx.close().catch(()=>{});setArmed(false)};setArmed(true);tick()};
-  return <><RoomPanel room={room}/><section className="panel"><button className="primary" onClick={armed?()=>stopRef.current():arm}>{armed?'ARMED · TAP TO CANCEL':'ARM MICROPHONE'}</button><p>Make one clear, comfortable sound after every phone is armed. Ranking is approximate and depends on device clock sync.</p><ol className="rank">{heard.map((x,i)=><li key={i}><strong>#{i+1}</strong><span>{x.id}</span><small>{x.t}</small></li>)}</ol><button className="ghost" onClick={()=>setHeard([])}>RESET</button></section></>;
+  const room=useRoom(); const [mode,setMode]=useState<'idle'|'arm'|'calibrate'>('idle');
+  const loaded=useState(()=>loadLocal('soundrace:v1',{version:1 as const,threshold:.18,heard:[] as {id:string;t:number}[]},isSoundStore))[0];
+  const [heard,setHeard]=useState(loaded.state.heard); const [threshold,setThreshold]=useState(loaded.state.threshold);
+  const [recommendation,setRecommendation]=useState(''); const [error,setError]=useState('');
+  const [restoreNote]=useState(loaded.invalid?'Could not restore the saved ranking. Starting empty.':''); const [saveError,setSaveError]=useState('');
+  useEffect(()=>{if(!writeLocal('soundrace:v1',{version:1,threshold,heard}))setSaveError('Could not save on this phone.');else setSaveError('');},[threshold,heard]);
+  const owner=useRef<import('./runtime').ResourceScope|null>(null); const generation=useRef(0); const mounted=useRef(true);
+  const stop=()=>{generation.current++;owner.current?.close();owner.current=null;if(mounted.current)setMode('idle')};
+  useEffect(()=>{
+    mounted.current=true;
+    const cancel=()=>stop(); const visibility=()=>{if(document.hidden)cancel()};
+    document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',cancel);window.addEventListener('phab:pause',cancel);
+    return()=>{mounted.current=false;cancel();document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',cancel);window.removeEventListener('phab:pause',cancel)};
+  },[]);
+  useEffect(()=>room.subscribe(message=>{
+    if(message.type!=='heard')return;
+    const p=message.payload;
+    if(p&&typeof p==='object'&&'t' in p)setHeard(v=>addRaceResult(v,message.from,p.t));
+  }),[room.subscribe]);
+  const start=async(kind:'arm'|'calibrate')=>{
+    stop();if(document.hidden||!mounted.current)return;
+    const run=generation.current; const current=()=>mounted.current&&generation.current===run;
+    setMode(kind);setError('');if(kind==='calibrate')setRecommendation('');
+    try {
+      const {resourceScope,openMedia,audioAnalyser,rmsOf}=await import('./runtime');
+      if(!current())return;
+      const scope=resourceScope();owner.current=scope;
+      if(kind==='calibrate'){
+        const sample=await sampleMic(1000,scope);
+        if(!current())return;
+        const suggestion=suggestRaceThreshold(sample.peak);
+        if(!suggestion){setError('Calibration sample was not a finite RMS value.');stop();return}
+        setRecommendation(`Ambient peak RMS ${sample.peak.toFixed(3)} (dimensionless full-scale amplitude, 1 s). Suggested threshold ${suggestion.suggested.toFixed(2)} applied: 1.5× that peak, limited to 0.05–0.35.${suggestion.clipped?' Ambient sound is too high for that margin; try a quieter room.':''} This cannot guarantee detection or prevent false triggers.`);
+        setThreshold(suggestion.suggested);stop();return;
+      }
+      const stream=await openMedia(scope,{audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      const analyser=await audioAnalyser(scope,stream);const data=new Float32Array(analyser.fftSize);let raf=0;
+      scope.own(()=>cancelAnimationFrame(raf));
+      const tick=()=>{
+        if(scope.closed||!current())return;
+        try {
+          analyser.getFloatTimeDomainData(data);
+          if(rmsOf(data)>threshold){
+            const t=Date.now();setHeard(v=>addRaceResult(v,room.identity,t));stop();room.send('heard',{t});void haptic().catch(()=>{});return;
+          }
+          raf=requestAnimationFrame(tick);
+        } catch(e){if(current()){setError(e instanceof Error?e.message:'Microphone failed. Check permissions and try again.');stop()}}
+      };tick();
+    } catch(e){if(current()){setError(e instanceof Error?e.message:'Microphone unavailable. Check permissions and try again.');stop()}}
+  };
+  return <><RoomPanel room={room}/><section className="panel">
+    <label className="slider">RMS THRESHOLD {threshold.toFixed(2)} <input type="range" min="0.05" max="0.35" step="0.01" value={threshold} disabled={mode!=='idle'} onChange={e=>setThreshold(Number(e.target.value))}/></label>
+    <button disabled={mode!=='idle'} onClick={()=>void start('calibrate')}>CALIBRATE AMBIENT · 1 s</button>
+    {recommendation&&<p>{recommendation}</p>}
+    <button className="primary" onClick={()=>mode==='idle'?void start('arm'):stop()}>{mode==='arm'?'ARMED · TAP TO CANCEL':mode==='calibrate'?'SAMPLING AMBIENT · CANCEL':'ARM MICROPHONE'}</button>
+    {error&&<p role="alert">{error}</p>}
+    <p>Stay quiet during calibration. Make one clear, comfortable sound after every phone is armed. Deltas are milliseconds between each phone’s own clock, earliest detection first. Clocks are not synchronized and no acoustic delay was measured. This phone can arm offline. A ranking across phones needs a connected room. Hiding the app releases the microphone. Reconnect is manual.</p>
+    <ol className="rank">{raceDeltas(heard).map((x,i)=><li key={x.id}><strong>#{i+1}</strong><span>{x.id}</span><small>+{x.delta} ms</small></li>)}</ol>
+    <button className="ghost" onClick={()=>{stop();setHeard([])}}>RESET</button>
+    {restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}
+    <p className="muted">{saveError?'':'Threshold and ranking saved on this phone.'}</p>
+  </section></>;
 }
 
 function FrameMatch(){

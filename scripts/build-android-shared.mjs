@@ -5,6 +5,8 @@ import {
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { appVersion } from './app-version.mjs';
+import { stampLauncher } from './stamp-launcher.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -33,9 +35,13 @@ for (const app of catalog) {
   const pkg = `com.phablabphone.${app.id}`;
   console.log(`\n===== ${app.name} · ${pkg} =====`);
 
+  const version = appVersion(app.id);
   let g = readFileSync(gradleFile, 'utf8');
-  g = g.replace(/applicationId "[^"]+"/, `applicationId "${pkg}"`);
+  g = g.replace(/applicationId "[^"]+"/, `applicationId "${pkg}"`)
+    .replace(/versionCode\s+\d+/, `versionCode ${version.versionCode}`)
+    .replace(/versionName\s+"[^"]+"/, `versionName "${version.versionName}"`);
   writeFileSync(gradleFile, g);
+  stampLauncher(join(android, 'app', 'src', 'main', 'res'), app.id, root);
   const esc = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   writeFileSync(stringsFile, `<?xml version='1.0' encoding='utf-8'?>
 <resources>
@@ -58,7 +64,7 @@ for (const app of catalog) {
 
   run(gradlew, ['assembleDebug', '--console=plain'], android);
   const built = join(android, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
-  const target = join(outDir, `${app.id}-1.0.0.apk`);
+  const target = join(outDir, `${app.id}-${version.versionName}.apk`);
   copyFileSync(built, target);
 
   run(signer, ['verify', '--verbose', target]);
@@ -67,7 +73,7 @@ for (const app of catalog) {
     throw new Error(`Package verification failed for ${app.id}`);
   }
   const hash = createHash('sha256').update(readFileSync(target)).digest('hex');
-  manifest.push({ id: app.id, name: app.name, packageName: pkg, apk: `apk/${app.id}-1.0.0.apk`, sha256: hash });
+  manifest.push({ id: app.id, name: app.name, packageName: pkg, versionName: version.versionName, versionCode: version.versionCode, apk: `apk/${app.id}-${version.versionName}.apk`, sha256: hash });
   console.log(`OK ${app.name}: ${target}`);
 }
 

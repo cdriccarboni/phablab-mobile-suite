@@ -1,0 +1,11 @@
+[
+  {
+    "id": "sensorlink",
+    "name": "SensorLink",
+    "emoji": "📡",
+    "tagline": "A spare phone becomes a remote sensor.",
+    "subtitle": "Stream phone sensors to another phone",
+    "category": "Utilities",
+    "share": "I turned an old phone into a live remote sensor."
+  }
+]
