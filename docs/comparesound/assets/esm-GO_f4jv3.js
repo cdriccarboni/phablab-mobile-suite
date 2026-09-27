@@ -1,0 +1,3 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./web-F3D3lrmJ.js","./index-Cf_ZAMjb.js","./index-BvLo2v5k.css"])))=>i.map(i=>d[i]);
+import{a as e,t}from"./index-Cf_ZAMjb.js";var n=e(`SpeechRecognition`,{web:()=>t(()=>import(`./web-F3D3lrmJ.js`).then(e=>new e.SpeechRecognitionWeb),__vite__mapDeps([0,1,2]),import.meta.url)});export{n as SpeechRecognition};
+//# sourceMappingURL=esm-GO_f4jv3.js.map

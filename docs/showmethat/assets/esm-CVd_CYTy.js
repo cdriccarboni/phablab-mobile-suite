@@ -1,0 +1,3 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./web-GhxYrwYS.js","./index-tsgH2lcp.js","./index-BvLo2v5k.css"])))=>i.map(i=>d[i]);
+import{a as e,t}from"./index-tsgH2lcp.js";var n;(function(e){e.Latin=`LATIN`,e.Chinese=`CHINESE`,e.Devanagari=`DEVANAGARI`,e.Japanese=`JAPANESE`,e.Korean=`KOREAN`})(n||={});var r=e(`TextRecognition`,{web:()=>t(()=>import(`./web-GhxYrwYS.js`).then(e=>new e.TextRecognitionWeb),__vite__mapDeps([0,1,2]),import.meta.url)});export{r as TextRecognition};
+//# sourceMappingURL=esm-CVd_CYTy.js.map
