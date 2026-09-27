@@ -43,17 +43,30 @@ Navigateur : Chrome headless, `http://127.0.0.1:5173`, script `tests/browser-p1.
 | Calibration micro factice | vérifié sur le faux périphérique seulement | pic RMS 0.464 (amplitude pleine échelle, sans unité physique), seuil plafonné à 0.35. Ce n’est pas un dB SPL et pas un téléphone |
 | Quatre identités écran | vérifié | quatre noms et quatre `src` de logo distincts |
 
+## APK — vérifié comme fichier, pas sur téléphone
+
+Le premier push des tags n’a pas lancé le workflow : GitHub ne l’a pas enregistré tant qu’il n’était pas sur `main`. Un push de la branche `grok/phablab-p1-finalisation-20260927` a lancé la run [36315238591](https://github.com/cdriccarboni/phablab-mobile-suite/actions/runs/36315238591), conclusion `success`, quatre jobs. Chaque job a exécuté `aapt` / `apksigner` dans `scripts/build-android-one.mjs` ; le job échoue si le package, le versionCode 2 ou le versionName 1.0.1 ne correspondent pas. Le journal du job TwinLevel contient `OK TwinLevel: .../twinlevel-1.0.1.apk`.
+
+Les quatre URL répondent HTTP 302 puis HTTP 200, `content-type: application/vnd.android.package-archive`. Le SHA-256 ci-dessous est recalculé après téléchargement, et il est identique à la note de pré-version. Le manifeste binaire contient le package et `1.0.1`. `aapt` n’a pas été relancé sur cette machine : pas de SDK Android ici.
+
+| App | Lien vérifié | Octets | SHA-256 |
+| --- | --- | --- | --- |
+| TwinLevel | https://github.com/cdriccarboni/phablab-mobile-suite/releases/download/twinlevel-v1.0.1/twinlevel-1.0.1.apk | 4601368 | `ab0359986ed1e7806f3a21e2afdc7e8ba692423604476ee4f4fbce1be4c92e0d` |
+| SensorLink | https://github.com/cdriccarboni/phablab-mobile-suite/releases/download/sensorlink-v1.0.1/sensorlink-1.0.1.apk | 4608476 | `10ffc215e9b638aa1cc61216b52af32e16af3ee20d5fe5a43226abc1f036e85a` |
+| SyncMark | https://github.com/cdriccarboni/phablab-mobile-suite/releases/download/syncmark-v1.0.1/syncmark-1.0.1.apk | 4606756 | `5b27dcf51c63d79f406e2da3a05edeee840d3621358a52f267c2c44ef833d9ae` |
+| SoundRace | https://github.com/cdriccarboni/phablab-mobile-suite/releases/download/soundrace-v1.0.1/soundrace-1.0.1.apk | 4606796 | `8d0e7755442521a7cb2f67237802e7e4a6c23872b2bcb2a65d7abac06210d6da` |
+
+Construit depuis `912df9a`. Les tags pointent vers `ec79cad` (le commit d’app, avant le correctif de déclenchement CI). L’APK n’a pas été installé.
+
 ## Non testé
 
-- Aucun téléphone physique, ni Android ni iOS.
+- Aucun téléphone physique, ni Android ni iOS. Les APK n’ont pas été installés.
 - Pas de deuxième navigateur réel pour une salle PeerJS. L’appairage, le délai réseau et le classement multi-téléphones ne sont pas mesurés.
 - Aucune exactitude d’angle, de dBFS, de m/s² ou de milliseconde n’a été comparée à un instrument.
-- L’APK n’est pas encore produit dans cette reprise. Le workflow et les tags sont le prochain pas. Tant qu’un lien GitHub ne répond pas, l’APK reste non testé.
 - Pas de signature Play Store, pas de capture d’écran store.
 
 ## Si on reprend
 
-1. Pousser la branche et les tags `twinlevel-v1.0.1`, `sensorlink-v1.0.1`, `syncmark-v1.0.1`, `soundrace-v1.0.1` pour lancer `Build one Android test APK`.
-2. Vérifier chaque URL de pré-version, la taille et le SHA-256. Ne pas inventer ces chiffres.
-3. Avec un compte autorisé : `scripts/prepare-private-repo.sh <app>` puis `gh repo create cdriccarboni/<app> --private` et un push sans `--force`.
-4. Sur deux téléphones : salle, reconnexion manuelle, et une seule mesure horodatée si on veut parler de latence.
+1. Avec un compte autorisé : `scripts/prepare-private-repo.sh <app>` puis `gh repo create cdriccarboni/<app> --private` et un push sans `--force`.
+2. Sur deux téléphones : installer les APK, ouvrir une salle, tenter une reconnexion manuelle, et noter une seule mesure horodatée si on veut parler de latence.
+3. Ne pas merger les branches `grok/<app>-finalisation-20260927` dans `main` : leur pointe est une seule app.
