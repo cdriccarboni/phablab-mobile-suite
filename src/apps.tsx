@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActionShare, BigMetric, RoomPanel, beep, fmt, haptic, sampleMic, speechStart, takePhotoDataUrl, useMicLevel, useMotion, useOrientation, useRoom } from './core';
-import { addRaceResult, raceDeltas, markDelay, emptyCounter, reduceCounter, isCounterState, isLevelReference, levelDifference, sensorSample, updateSensorStats, type LevelReference, type SensorSample, type SensorStats } from './logic';
+import { addRaceResult, applyLevelZero, emptySensorLinkStore, isLevelReference, isSensorLinkStore, isSoundStore, isSyncStore, isTwinStore, levelDifference, markDelay, raceDeltas, relativeMotion, sensorSample, suggestRaceThreshold, updateSensorStats, emptyCounter, reduceCounter, isCounterState, type SensorSample, type SensorStats } from './logic';
+import { loadLocal, writeLocal } from './runtime';
 
 export function AppRouter({appId}:{appId:string}) {
   switch(appId){
@@ -394,9 +395,12 @@ function PhabLabPhone(){
 }
 
 function TwinLevel(){
-  const room=useRoom(); const ori=useOrientation(); const [reference,setReference]=useState<LevelReference|null>(null);
+  const room=useRoom(); const ori=useOrientation();
+  const loaded=useState(()=>loadLocal('twinlevel:v1',{version:1 as const,reference:null,zero:null},isTwinStore))[0];
+  const [store,setStore]=useState(loaded.state); const [restoreNote]=useState(loaded.invalid?'Could not restore the saved angle. Starting empty.':''); const [saveError,setSaveError]=useState('');
   const [starting,setStarting]=useState(false); const pending=useRef(false); const generation=useRef(0);
-  useEffect(()=>room.subscribe(message=>{if(message.type==='levelref'&&isLevelReference(message.payload))setReference(message.payload)}),[room.subscribe]);
+  useEffect(()=>{setSaveError(writeLocal('twinlevel:v1',store)?'':'Could not save on this phone.');},[store]);
+  useEffect(()=>room.subscribe(message=>{const reference=message.payload;if(message.type==='levelref'&&isLevelReference(reference))setStore(previous=>({...previous,reference}))}),[room.subscribe]);
   useEffect(()=>{
     const stop=()=>{generation.current++;pending.current=false;setStarting(false);ori.stop()};
     const visibility=()=>{if(document.hidden)stop()};
@@ -409,17 +413,36 @@ function TwinLevel(){
     try{await ori.start()}catch{/* The hook exposes the sensor error. */}
     finally{if(generation.current===id){pending.current=false;setStarting(false)}}
   };
-  const reading={b:ori.beta,g:ori.gamma}; const valid=ori.active&&isLevelReference(reading);
-  const delta=valid?levelDifference(reading,reference):null;
-  const capture=()=>{if(!ori.active||!isLevelReference(reading))return;setReference(reading);room.send('levelref',reading)};
+  const raw=isLevelReference({b:ori.beta,g:ori.gamma})?{b:ori.beta,g:ori.gamma}:null;
+  const shown=raw?applyLevelZero(raw,store.zero):null;
+  const valid=!!(ori.active&&shown);
+  const delta=valid&&shown?levelDifference(shown,store.reference):null;
+  const capture=()=>{if(!valid||!shown)return;setStore(previous=>({...previous,reference:shown}));room.send('levelref',shown)};
   const direction=(value:number,axis:'X'|'Y')=>Math.abs(value)<.01?'ALIGNED':axis==='X'?(value>0?'→ INCREASE X':'← DECREASE X'):(value>0?'↑ INCREASE Y':'↓ DECREASE Y');
-  return <><RoomPanel room={room}/><section className="panel"><button onClick={toggle}>{starting?'CANCEL START':ori.active?'STOP SENSOR':'START LEVEL'}</button>{ori.error&&<p role="alert">{ori.error}</p>}<button className="primary" disabled={!valid} onClick={capture}>CAPTURE REFERENCE</button><div className="metrics"><BigMetric value={fmt(ori.gamma)+'°'} label="TILT X"/><BigMetric value={fmt(ori.beta)+'°'} label="TILT Y"/></div>{delta&&<><div className="metrics"><BigMetric value={fmt(delta.x,2)+'°'} label={'Δ X · '+direction(delta.x,'X')}/><BigMetric value={fmt(delta.y,2)+'°'} label={'Δ Y · '+direction(delta.y,'Y')}/></div><BigMetric value={fmt(delta.total,2)+'°'} label={delta.match?'TOTAL · MATCH ✓':'TOTAL DIFFERENCE'}/><ActionShare text={`TwinLevel: X ${fmt(delta.x,2)}°, Y ${fmt(delta.y,2)}°, total ${fmt(delta.total,2)}°${delta.match?' · MATCH':''}.`}/></>}</section></>;
+  const share=delta?delta.match?`TwinLevel matched two surfaces to within ${fmt(delta.total,2)}°.`:`TwinLevel difference: ${fmt(delta.total,2)}°.`:'';
+  return <><RoomPanel room={room}/><section className="panel">
+    <p>Capture an angle here. Move this phone, or send the angle and match it there. Values are degrees.</p>
+    <button onClick={toggle}>{starting?'CANCEL START':ori.active?'STOP SENSOR':'START LEVEL'}</button>
+    {ori.error&&<p role="alert">{ori.error}</p>}
+    <div className="twocol"><button disabled={!raw} onClick={()=>raw&&setStore(previous=>({...previous,zero:raw}))}>ZERO HERE</button><button disabled={!store.zero} onClick={()=>setStore(previous=>({...previous,zero:null}))}>CLEAR ZERO</button></div>
+    <button className="primary" disabled={!valid} onClick={capture}>CAPTURE REFERENCE</button>
+    <button className="ghost" disabled={!store.reference} onClick={()=>setStore(previous=>({...previous,reference:null}))}>CLEAR REFERENCE</button>
+    <div className="metrics"><BigMetric value={fmt(shown?.g??NaN)+'°'} label="TILT X"/><BigMetric value={fmt(shown?.b??NaN)+'°'} label="TILT Y"/></div>
+    {store.reference&&<p className="muted">Reference X {fmt(store.reference.g,2)}° · Y {fmt(store.reference.b,2)}°{store.zero?' · local zero on':''}</p>}
+    {delta&&<><div className="metrics"><BigMetric value={fmt(delta.x,2)+'°'} label={'Δ X · '+direction(delta.x,'X')}/><BigMetric value={fmt(delta.y,2)+'°'} label={'Δ Y · '+direction(delta.y,'Y')}/></div><BigMetric value={fmt(delta.total,2)+'°'} label={delta.match?'TOTAL · UNDER 1°':'TOTAL DIFFERENCE'}/><ActionShare text={share}/></>}
+    <p className="muted">Works offline on this phone. Pairing needs internet and only copies the captured degrees. ZERO HERE is a local offset, not a certified calibration. UNDER 1° is a display threshold, not a measured accuracy. Hiding the app stops the sensor. Reconnect is manual.</p>
+    {restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}
+    <p className="muted">{saveError?'':'Reference saved on this phone.'}</p>
+  </section></>;
 }
 
 function SensorLink(){
   const room=useRoom(); const mic=useMicLevel(); const ori=useOrientation(); const motion=useMotion();
-  const [selected,setSelected]=useState({sound:true,tilt:true,motion:true}); const [running,setRunning]=useState(false); const [starting,setStarting]=useState(false);
-  const [remote,setRemote]=useState<SensorSample|null>(null); const [stats,setStats]=useState<SensorStats>({});
+  const loaded=useState(()=>loadLocal('sensorlink:v1',emptySensorLinkStore(),isSensorLinkStore))[0];
+  const [selected,setSelected]=useState(loaded.state.selected); const [tare,setTare]=useState<number|null>(loaded.state.tare);
+  const [running,setRunning]=useState(false); const [starting,setStarting]=useState(false);
+  const [remote,setRemote]=useState<SensorSample|null>(loaded.state.lastRemote); const [stats,setStats]=useState<SensorStats>(loaded.state.stats);
+  const [restoreNote]=useState(loaded.invalid?'Could not restore the saved sensor session. Starting empty.':''); const [saveError,setSaveError]=useState('');
   const generation=useRef(0); const streaming=useRef(false); const pending=useRef(false); const timer=useRef<ReturnType<typeof setInterval>|null>(null);
   const stop=()=>{generation.current++;streaming.current=false;pending.current=false;if(timer.current!==null)clearInterval(timer.current);timer.current=null;mic.stop();ori.stop();motion.stop();setRunning(false);setStarting(false)};
   useEffect(()=>{
@@ -427,13 +450,18 @@ function SensorLink(){
     document.addEventListener('visibilitychange',visibility);window.addEventListener('phab:pause',stop);window.addEventListener('pagehide',stop);
     return()=>{document.removeEventListener('visibilitychange',visibility);window.removeEventListener('phab:pause',stop);window.removeEventListener('pagehide',stop);stop()};
   },[mic.stop,ori.stop,motion.stop]);
+  useEffect(()=>{
+    setSaveError(writeLocal('sensorlink:v1',{version:1,selected,tare,lastRemote:remote,stats})?'':'Could not save on this phone.');
+  },[selected,tare,remote,stats]);
   useEffect(()=>room.subscribe(message=>{
     if(message.type!=='sensor')return;
     const sample=sensorSample(message.payload);if(!Object.keys(sample).length)return;
     setRemote(sample);setStats(previous=>updateSensorStats(previous,sample));
   }),[room.subscribe]);
+  const motionValue=motion.active?relativeMotion(motion.magnitude,tare):null;
+  const local=sensorSample({...(selected.sound&&mic.active?{db:mic.db}:{}),...(selected.tilt&&ori.active?{beta:ori.beta,gamma:ori.gamma}:{}),...(selected.motion&&motionValue!==null?{motion:motionValue}:{})});
   const latest=useRef({sample:{} as SensorSample,send:room.send});
-  latest.current={sample:sensorSample({...(selected.sound&&mic.active?{db:mic.db}:{}),...(selected.tilt&&ori.active?{beta:ori.beta,gamma:ori.gamma}:{}),...(selected.motion&&motion.active?{motion:motion.magnitude}:{})}),send:room.send};
+  latest.current={sample:local,send:room.send};
   useEffect(()=>{
     if(!running)return;
     timer.current=setInterval(()=>{const {sample,send}=latest.current;if(streaming.current&&Object.keys(sample).length)send('sensor',sample)},160);
@@ -442,19 +470,38 @@ function SensorLink(){
   useEffect(()=>{if(running&&!starting&&!mic.active&&!ori.active&&!motion.active)stop()},[running,starting,mic.active,ori.active,motion.active]);
   const start=async()=>{
     if(pending.current||streaming.current||!Object.values(selected).some(Boolean))return;
-    const id=++generation.current;pending.current=true;setStarting(true);setRemote(null);setStats({});
+    const id=++generation.current;pending.current=true;setStarting(true);
     // Begin all selected permission requests in the user gesture; each hook owns its cleanup.
     const results=await Promise.allSettled([...(selected.sound?[mic.start()]:[]),...(selected.tilt?[ori.start()]:[]),...(selected.motion?[motion.start()]:[])]);
     if(id!==generation.current)return;
     pending.current=false;setStarting(false);
     if(results.some(result=>result.status==='fulfilled')){streaming.current=true;setRunning(true)}else stop();
   };
-  const fields=[['db','SOUND',' dBFS'],['gamma','TILT X','°'],['beta','TILT Y','°'],['motion','MOTION',' m/s²']] as const;
-  return <><RoomPanel room={room}/><section className="panel"><div className="checklist">{(['sound','tilt','motion'] as const).map(key=><label key={key}><input type="checkbox" checked={selected[key]} disabled={running||starting} onChange={event=>{const checked=event.target.checked;setSelected(previous=>({...previous,[key]:checked}))}}/>{key.toUpperCase()}</label>)}</div><button className="primary" disabled={!running&&!starting&&!Object.values(selected).some(Boolean)} onClick={running||starting?stop:start}>{starting?'STOP · STARTING':running?'STOP STREAM':'START STREAM'}</button>{selected.sound&&mic.error&&<p role="alert">SOUND · {mic.error}</p>}{selected.tilt&&ori.error&&<p role="alert">TILT · {ori.error}</p>}{selected.motion&&motion.error&&<p role="alert">MOTION · {motion.error}</p>}<div className="panel-title">LAST REMOTE SAMPLE</div>{remote?<div className="metrics four">{fields.filter(([key])=>remote[key]!==undefined).map(([key,label,unit])=><BigMetric key={key} value={fmt(remote[key]!,2)+unit} label={label}/>)}</div>:<p>Waiting for a remote sample.</p>}<div className="panel-title">REMOTE SESSION · MIN / MAX</div>{fields.filter(([key])=>stats[key]).map(([key,label,unit])=><div key={key} className="muted">{label} · {fmt(stats[key]!.min,2)} / {fmt(stats[key]!.max,2)}{unit}</div>)}<button className="ghost" onClick={()=>{setRemote(null);setStats({})}}>RESET REMOTE SESSION</button></section></>;
+  const fields=[['db','SOUND',' dBFS'],['gamma','TILT X','°'],['beta','TILT Y','°'],['motion',tare===null?'MOTION':'MOTION − TARE',' m/s²']] as const;
+  const metrics=(sample:SensorSample|null)=>sample&&Object.keys(sample).length?<div className="metrics four">{fields.filter(([key])=>sample[key]!==undefined).map(([key,label,unit])=><BigMetric key={key} value={fmt(sample[key]!,2)+unit} label={label}/>)}</div>:<p>No sample yet.</p>;
+  return <><RoomPanel room={room}/><section className="panel">
+    <p>Leave this phone by what you want to watch. Read it from the other phone. SOUND is dBFS, not dB SPL. TILT is degrees. MOTION is m/s² from acceleration including gravity, until you tare.</p>
+    <div className="checklist">{(['sound','tilt','motion'] as const).map(key=><label key={key}><input type="checkbox" checked={selected[key]} disabled={running||starting} onChange={event=>{const checked=event.target.checked;setSelected(previous=>({...previous,[key]:checked}))}}/>{key.toUpperCase()}</label>)}</div>
+    <button className="primary" disabled={!running&&!starting&&!Object.values(selected).some(Boolean)} onClick={running||starting?stop:start}>{starting?'STOP · STARTING':running?'STOP STREAM':'START STREAM'}</button>
+    <div className="twocol"><button disabled={!motion.active||!Number.isFinite(motion.magnitude)} onClick={()=>setTare(motion.magnitude)}>TARE MOTION</button><button disabled={tare===null} onClick={()=>setTare(null)}>CLEAR TARE</button></div>
+    {tare!==null&&<p className="muted">Tare subtracts {fmt(tare,2)} m/s² on this phone. The stream sends that relative value. Not a calibrated accelerometer.</p>}
+    {selected.sound&&mic.error&&<p role="alert">SOUND · {mic.error}</p>}{selected.tilt&&ori.error&&<p role="alert">TILT · {ori.error}</p>}{selected.motion&&motion.error&&<p role="alert">MOTION · {motion.error}</p>}
+    <div className="panel-title">THIS PHONE</div>{metrics(Object.keys(local).length?local:null)}
+    <div className="panel-title">LAST REMOTE SAMPLE</div>{metrics(remote)}
+    <div className="panel-title">REMOTE SESSION · MIN / MAX</div>{fields.filter(([key])=>stats[key]).map(([key,label,unit])=><div key={key} className="muted">{label} · {fmt(stats[key]!.min,2)} / {fmt(stats[key]!.max,2)}{unit}</div>)}
+    <button className="ghost" onClick={()=>{setRemote(null);setStats({})}}>RESET REMOTE SESSION</button>
+    <p className="muted">Numbers on this phone work offline. The other phone updates only while the room is connected. Samples are sent about every 160 ms while streaming; that interval was not measured on a device. Hiding the app stops the microphone and sensors. Reconnect is manual, with no retry loop.</p>
+    {restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}
+    <p className="muted">{saveError?'':'Selection, tare and last remote sample saved on this phone.'}</p>
+  </section></>;
 }
 
 function SyncMark(){
-  const room=useRoom(); const [delay,setDelay]=useState(1000); const [flash,setFlash]=useState(false); const [marks,setMarks]=useState<number[]>([]);
+  const room=useRoom();
+  const loaded=useState(()=>loadLocal('syncmark:v1',{version:1 as const,delay:1000,marks:[] as number[]},isSyncStore))[0];
+  const [delay,setDelay]=useState(loaded.state.delay); const [flash,setFlash]=useState(false); const [marks,setMarks]=useState<number[]>(loaded.state.marks);
+  const [restoreNote]=useState(loaded.invalid?'Could not restore the saved marks. Starting empty.':''); const [saveError,setSaveError]=useState('');
+  useEffect(()=>{setSaveError(writeLocal('syncmark:v1',{version:1,delay,marks})?'':'Could not save on this phone.');},[delay,marks]);
   const timers=useRef(new Set<ReturnType<typeof setTimeout>>()); const flashTimer=useRef<ReturnType<typeof setTimeout>|null>(null); const mounted=useRef(false);
   const later=(callback:()=>void,ms:number)=>{const timer=setTimeout(()=>{timers.current.delete(timer);if(mounted.current&&!document.hidden)callback()},ms);timers.current.add(timer);return timer};
   const fire=(ms:number)=>{
@@ -480,13 +527,16 @@ function SyncMark(){
     if(ms!==null)fire(ms);
   }),[room.subscribe]);
   const go=()=>{if(document.hidden)return;room.send('syncmark',{delay});fire(delay)};
-  return <><RoomPanel room={room}/><section className={`syncstage ${flash?'flash':''}`}><div className="twocol">{[0,1000,3000,5000].map(ms=><button key={ms} aria-pressed={delay===ms} onClick={()=>setDelay(ms)}>{ms/1000} s</button>)}</div><button className="mega" onClick={go}>SYNC MARK</button><p>Approximate sync marker, not professional timecode. Flash + beep after each phone’s relative countdown; network and device delays vary. Tap again for another mark.</p>{marks.length>0&&<><div className="panel-title">FIRED MARKS · LOCAL TIME</div><ol>{marks.map((time,index)=><li key={index}><time dateTime={new Date(time).toISOString()}>{new Date(time).toLocaleTimeString()}.{String(time%1000).padStart(3,'0')}</time></li>)}</ol></>}</section></>;
+  return <><RoomPanel room={room}/><section className={`syncstage ${flash?'flash':''}`}><div className="twocol">{[0,1000,3000,5000].map(ms=><button key={ms} aria-pressed={delay===ms} onClick={()=>setDelay(ms)}>{ms/1000} s</button>)}</div><button className="mega" onClick={go}>SYNC MARK</button><p>Approximate sync marker, not professional timecode. Flash + beep after each phone’s own countdown, in milliseconds. No shared clock and no latency were measured. This phone marks even offline. Other phones mark only if they receive the message. Hiding the app cancels a pending mark. Reconnect is manual.</p>{marks.length>0&&<><div className="panel-title">FIRED MARKS · LOCAL TIME</div><ol>{marks.map((time,index)=><li key={`${time}-${index}`}><time dateTime={new Date(time).toISOString()}>{new Date(time).toLocaleTimeString()}.{String(time%1000).padStart(3,'0')}</time></li>)}</ol><button className="ghost" onClick={()=>setMarks([])}>CLEAR MARKS</button></>}{restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}<p className="muted">{saveError?'':'Countdown and marks saved on this phone.'}</p></section></>;
 }
 
 function SoundRace(){
   const room=useRoom(); const [mode,setMode]=useState<'idle'|'arm'|'calibrate'>('idle');
-  const [heard,setHeard]=useState<{id:string;t:number}[]>([]); const [threshold,setThreshold]=useState(.18);
+  const loaded=useState(()=>loadLocal('soundrace:v1',{version:1 as const,threshold:.18,heard:[] as {id:string;t:number}[]},isSoundStore))[0];
+  const [heard,setHeard]=useState(loaded.state.heard); const [threshold,setThreshold]=useState(loaded.state.threshold);
   const [recommendation,setRecommendation]=useState(''); const [error,setError]=useState('');
+  const [restoreNote]=useState(loaded.invalid?'Could not restore the saved ranking. Starting empty.':''); const [saveError,setSaveError]=useState('');
+  useEffect(()=>{if(!writeLocal('soundrace:v1',{version:1,threshold,heard}))setSaveError('Could not save on this phone.');else setSaveError('');},[threshold,heard]);
   const owner=useRef<import('./runtime').ResourceScope|null>(null); const generation=useRef(0); const mounted=useRef(true);
   const stop=()=>{generation.current++;owner.current?.close();owner.current=null;if(mounted.current)setMode('idle')};
   useEffect(()=>{
@@ -511,10 +561,10 @@ function SoundRace(){
       if(kind==='calibrate'){
         const sample=await sampleMic(1000,scope);
         if(!current())return;
-        const target=Math.max(.05,sample.peak*1.5);
-        const suggested=Math.min(.35,Math.ceil(target*100)/100);
-        setRecommendation(`Ambient peak RMS ${sample.peak.toFixed(3)}. Suggested threshold ${suggested.toFixed(2)} (applied): 1.5× this short sample’s peak, limited to 0.05–0.35. ${target>.35?'Ambient sound is too high for that margin; try a quieter room. ':' '}This cannot guarantee detection or prevent false triggers.`);
-        setThreshold(suggested);stop();return;
+        const suggestion=suggestRaceThreshold(sample.peak);
+        if(!suggestion){setError('Calibration sample was not a finite RMS value.');stop();return}
+        setRecommendation(`Ambient peak RMS ${sample.peak.toFixed(3)} (dimensionless full-scale amplitude, 1 s). Suggested threshold ${suggestion.suggested.toFixed(2)} applied: 1.5× that peak, limited to 0.05–0.35.${suggestion.clipped?' Ambient sound is too high for that margin; try a quieter room.':''} This cannot guarantee detection or prevent false triggers.`);
+        setThreshold(suggestion.suggested);stop();return;
       }
       const stream=await openMedia(scope,{audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
       const analyser=await audioAnalyser(scope,stream);const data=new Float32Array(analyser.fftSize);let raf=0;
@@ -537,9 +587,11 @@ function SoundRace(){
     {recommendation&&<p>{recommendation}</p>}
     <button className="primary" onClick={()=>mode==='idle'?void start('arm'):stop()}>{mode==='arm'?'ARMED · TAP TO CANCEL':mode==='calibrate'?'SAMPLING AMBIENT · CANCEL':'ARM MICROPHONE'}</button>
     {error&&<p role="alert">{error}</p>}
-    <p>Stay quiet during calibration. Make one clear, comfortable sound after every phone is armed. Rankings and relative times are approximate: clocks, devices and network are not synchronized lab instruments.</p>
+    <p>Stay quiet during calibration. Make one clear, comfortable sound after every phone is armed. Deltas are milliseconds between each phone’s own clock, earliest detection first. Clocks are not synchronized and no acoustic delay was measured. This phone can arm offline. A ranking across phones needs a connected room. Hiding the app releases the microphone. Reconnect is manual.</p>
     <ol className="rank">{raceDeltas(heard).map((x,i)=><li key={x.id}><strong>#{i+1}</strong><span>{x.id}</span><small>+{x.delta} ms</small></li>)}</ol>
     <button className="ghost" onClick={()=>{stop();setHeard([])}}>RESET</button>
+    {restoreNote&&<p role="alert">{restoreNote}</p>}{saveError&&<p role="alert">{saveError}</p>}
+    <p className="muted">{saveError?'':'Threshold and ranking saved on this phone.'}</p>
   </section></>;
 }
 

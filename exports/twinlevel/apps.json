@@ -1,0 +1,11 @@
+[
+  {
+    "id": "twinlevel",
+    "name": "TwinLevel",
+    "emoji": "📐",
+    "tagline": "Copy an angle somewhere else.",
+    "subtitle": "Match the tilt of two surfaces",
+    "category": "Utilities",
+    "share": "TwinLevel matched two surfaces to within {value}."
+  }
+]

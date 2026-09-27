@@ -1,0 +1,13 @@
+{
+  "id": "soundrace",
+  "name": "SoundRace",
+  "versionName": "1.0.1",
+  "versionCode": 2,
+  "package": "com.phablabphone.soundrace",
+  "title": "Which phone heard it first?",
+  "short": "Race sound across multiple phones",
+  "full": "Arm the microphones, make one comfortable sound, and rank which phone detected it first. Deltas are milliseconds between each phone’s own clock. A one-second ambient sample can suggest a detection threshold. It does not measure acoustic delay and it does not guarantee detection.",
+  "category": "Education",
+  "screenshots": [],
+  "screenshotNote": "Aucune capture réelle d’écran n’a été faite sur un téléphone. Ne pas publier de maquettes à la place."
+}

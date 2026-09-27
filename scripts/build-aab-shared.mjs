@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, copyFileSync, e
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { appVersion } from './app-version.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -27,11 +28,12 @@ for (const app of catalog) {
   const pkg = `com.phablabphone.${app.id}`;
   console.log(`\n===== AAB ${app.name} · ${pkg} =====`);
 
+  const version = appVersion(app.id);
   let g = readFileSync(gradleFile, 'utf8');
   g = g.replace(/namespace\s*=\s*"[^"]+"/, `namespace = "${pkg}"`)
        .replace(/applicationId\s+"[^"]+"/, `applicationId "${pkg}"`)
-       .replace(/versionCode\s+\d+/, 'versionCode 1')
-       .replace(/versionName\s+"[^"]+"/, 'versionName "1.0.0"');
+       .replace(/versionCode\s+\d+/, `versionCode ${version.versionCode}`)
+       .replace(/versionName\s+"[^"]+"/, `versionName "${version.versionName}"`);
   writeFileSync(gradleFile, g);
 
   const esc = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -60,16 +62,16 @@ for (const app of catalog) {
   run(gradlew, ['bundleRelease', '--console=plain'], android);
   const built = join(android, 'app', 'build', 'outputs', 'bundle', 'release', 'app-release.aab');
   if (!existsSync(built)) throw new Error(`Missing AAB for ${app.id}`);
-  const target = join(outDir, `${app.id}-1.0.0-unsigned.aab`);
+  const target = join(outDir, `${app.id}-${version.versionName}-unsigned.aab`);
   copyFileSync(built, target);
   const hash = createHash('sha256').update(readFileSync(target)).digest('hex');
   manifest.push({
     id: app.id,
     name: app.name,
     packageName: pkg,
-    versionCode: 1,
-    versionName: '1.0.0',
-    aab: `aab/${app.id}-1.0.0-unsigned.aab`,
+    versionCode: version.versionCode,
+    versionName: version.versionName,
+    aab: `aab/${app.id}-${version.versionName}-unsigned.aab`,
     signed: false,
     sha256: hash
   });
