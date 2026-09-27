@@ -1,0 +1,3 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./web-BSIzRem_.js","./index-DCVmkgSD.js","./index-CRqMR2ve.css"])))=>i.map(i=>d[i]);
+import{a as e,t}from"./index-DCVmkgSD.js";var n;(function(e){e.Latin=`LATIN`,e.Chinese=`CHINESE`,e.Devanagari=`DEVANAGARI`,e.Japanese=`JAPANESE`,e.Korean=`KOREAN`})(n||={});var r=e(`TextRecognition`,{web:()=>t(()=>import(`./web-BSIzRem_.js`).then(e=>new e.TextRecognitionWeb),__vite__mapDeps([0,1,2]),import.meta.url)});export{r as TextRecognition};
+//# sourceMappingURL=esm-BgNmGc8_.js.map

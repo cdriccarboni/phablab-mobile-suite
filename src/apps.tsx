@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActionShare, BigMetric, RoomPanel, beep, fmt, haptic, sampleMic, speechStart, takePhotoDataUrl, useMicLevel, useMotion, useOrientation, useRoom } from './core';
-import { addRaceResult, raceDeltas, markDelay, emptyCounter, reduceCounter, isCounterState, isLevelReference, levelDifference, sensorSample, updateSensorStats, type LevelReference, type SensorSample, type SensorStats } from './logic';
+import { addRaceResult, raceDeltas, markDelay, emptyCounter, reduceCounter, isCounterState, isLevelReference, levelDifference, sensorSample, updateSensorStats, avOffset, type LevelReference, type SensorSample, type SensorStats } from './logic';
+import { MARKER_COLORS, POCKET_TONE_HZ, checklistLines, clampOpacity, isMarker, isPhotoDataUrl, nextSignalCount, normalizeCaption, nudgeMarker, parseSignPayload, pushCaption, rankByMs, reactionMs, relativeLevelChange, type Marker } from './app-logic';
 
 export function AppRouter({appId}:{appId:string}) {
   switch(appId){
@@ -28,7 +29,7 @@ function WallCheck(){
   const room=useRoom(); const [base,setBase]=useState<number|null>(null); const [test,setTest]=useState<number|null>(null); const [busy,setBusy]=useState(false);
   useEffect(()=>{ if(room.lastMessage?.type==='tone') beep(700,.7); },[room.lastMessage]);
   const measure=async(kind:'base'|'test')=>{setBusy(true);room.send('tone');await new Promise(r=>setTimeout(r,100));try{const r=await sampleMic(1200);kind==='base'?setBase(r.db):setTest(r.db);}finally{setBusy(false)}};
-  const diff=base!=null&&test!=null?test-base:null;
+  const diff=relativeLevelChange(base,test);
   return <><RoomPanel room={room}/><section className="panel"><div className="panel-title">ISOLATION TEST</div><p>Put one phone by the source and one on the other side. Keep playback at a comfortable volume.</p><div className="twocol"><button onClick={()=>measure('base')} disabled={busy}>1 · OPEN / BASELINE</button><button onClick={()=>measure('test')} disabled={busy}>2 · CLOSED / TEST</button></div><div className="metrics"><BigMetric value={base==null?'—':fmt(base)+' dBFS'} label="BASE"/><BigMetric value={test==null?'—':fmt(test)+' dBFS'} label="TEST"/></div>{diff!=null&&<><BigMetric value={fmt(diff)+' dB'} label="CHANGE (RELATIVE)"/><ActionShare text={`WallCheck result: ${fmt(diff)} dB relative change.`}/></>}</section></>;
 }
 
@@ -39,11 +40,7 @@ function CaptionCast(){
   const mounted=useRef(true);
   const session=useRef<{cancelled:boolean;starting:boolean;cleanup:()=>Promise<void>}|null>(null);
   const latestSent=useRef('');
-  const updateCaption=(value:string)=>{
-    const caption=value.trim().replace(/\s+/g,' ');
-    if(!caption)return;
-    setCaptions(previous=>previous[0]===caption?previous:[caption,...previous.filter(item=>item!==caption)].slice(0,7));
-  };
+  const updateCaption=(value:string)=>setCaptions(previous=>pushCaption(previous,value));
   useEffect(()=>room.subscribe(message=>{
     if(message.type==='caption'&&typeof message.payload==='string')updateCaption(message.payload);
   }),[room.subscribe]);
@@ -85,7 +82,7 @@ function CaptionCast(){
       if(permission.speechRecognition!=='granted')throw new Error('Microphone / speech permission denied. You can still receive captions.');
       listeners.push(await engine.addListener('partialResults',event=>{
         if(!current())return;
-        const caption=(event.matches?.[0]||event.accumulatedText||event.accumulated||'').trim().replace(/\s+/g,' ');
+        const caption=normalizeCaption(event.matches?.[0]||event.accumulatedText||event.accumulated||'');
         if(!caption||caption===latestSent.current)return;
         latestSent.current=caption;updateCaption(caption);room.send('caption',caption);
       }));
@@ -136,10 +133,9 @@ function SignMe(){
   const [display,setDisplay]=useState(false);
   useEffect(()=>room.subscribe(message=>{
     if(message.type!=='sign')return;
-    const payload=message.payload;
-    if(!payload||typeof payload!=='object'||!('text' in payload)||typeof payload.text!=='string'||!('tone' in payload))return;
-    if(payload.tone!=='dark'&&payload.tone!=='light'&&payload.tone!=='alert')return;
-    setRemote(payload.text);setTone(payload.tone);
+    const parsed=parseSignPayload(message.payload);
+    if(!parsed)return;
+    setRemote(parsed.text);setTone(parsed.tone);
   }),[room.subscribe]);
   const send=(message=text)=>{room.send('sign',{text:message,tone});setRemote(message)};
   return <>{!display&&<RoomPanel room={room}/>}<section className={`signscreen ${tone}`} style={display?{position:'fixed',inset:0,zIndex:100,borderRadius:0,display:'flex',flexDirection:'column',gap:24,overflowY:'auto',justifyContent:'flex-start',padding:'max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom))'}:undefined}>
@@ -156,14 +152,14 @@ function SignMe(){
 
 function LagCheck(){
   const [result,setResult]=useState<number|null>(null); const [running,setRunning]=useState(false); const videoRef=useRef<HTMLVideoElement>(null); const canvasRef=useRef<HTMLCanvasElement>(null);
-  const run=async()=>{setRunning(true);setResult(null);const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:true});const video=videoRef.current!;video.srcObject=stream;await video.play();const ctx=new AudioContext();const an=ctx.createAnalyser();an.fftSize=512;ctx.createMediaStreamSource(stream).connect(an);const audio=new Float32Array(an.fftSize);const canvas=canvasRef.current!;const c=canvas.getContext('2d')!;let tAudio:number|null=null,tLight:number|null=null;const start=performance.now();while(performance.now()-start<7000&&(!tAudio||!tLight)){an.getFloatTimeDomainData(audio);let s=0;for(const v of audio)s+=v*v;if(!tAudio&&Math.sqrt(s/audio.length)>.12)tAudio=performance.now();c.drawImage(video,0,0,32,24);const px=c.getImageData(0,0,32,24).data;let lum=0;for(let i=0;i<px.length;i+=4)lum+=(px[i]+px[i+1]+px[i+2])/3;lum/=px.length/4;if(!tLight&&lum>210)tLight=performance.now();await new Promise(r=>setTimeout(r,16));}if(tAudio&&tLight)setResult(tAudio-tLight);stream.getTracks().forEach(t=>t.stop());await ctx.close();setRunning(false)};
+  const run=async()=>{setRunning(true);setResult(null);const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:true});const video=videoRef.current!;video.srcObject=stream;await video.play();const ctx=new AudioContext();const an=ctx.createAnalyser();an.fftSize=512;ctx.createMediaStreamSource(stream).connect(an);const audio=new Float32Array(an.fftSize);const canvas=canvasRef.current!;const c=canvas.getContext('2d')!;let tAudio:number|null=null,tLight:number|null=null;const start=performance.now();while(performance.now()-start<7000&&(!tAudio||!tLight)){an.getFloatTimeDomainData(audio);let s=0;for(const v of audio)s+=v*v;if(!tAudio&&Math.sqrt(s/audio.length)>.12)tAudio=performance.now();c.drawImage(video,0,0,32,24);const px=c.getImageData(0,0,32,24).data;let lum=0;for(let i=0;i<px.length;i+=4)lum+=(px[i]+px[i+1]+px[i+2])/3;lum/=px.length/4;if(!tLight&&lum>210)tLight=performance.now();await new Promise(r=>setTimeout(r,16));}const offset=avOffset(tAudio,tLight);if(offset!=null)setResult(offset);stream.getTracks().forEach(t=>t.stop());await ctx.close();setRunning(false)};
   return <section className="panel"><div className="panel-title">A/V EVENT DETECTOR</div><p>Point at a screen or source that produces a bright flash and a sound together, then start the scan.</p><video ref={videoRef} playsInline muted className="preview"/><canvas ref={canvasRef} width="32" height="24" hidden/><button className="primary" disabled={running} onClick={run}>{running?'SCANNING…':'SCAN 7 SECONDS'}</button>{result!=null&&<><BigMetric value={(result>0?'+':'')+fmt(result,0)+' ms'} label={result>0?'AUDIO AFTER LIGHT':'AUDIO BEFORE LIGHT'}/><ActionShare text={`LagCheck measured ${fmt(result,0)} ms A/V offset.`}/></>}</section>;
 }
 
 function TapBack(){
   const room=useRoom(); const [hits,setHits]=useState(0); const [flash,setFlash]=useState(false);
-  useEffect(()=>{if(room.lastMessage?.type==='tap'){setHits(v=>v+1);setFlash(true);haptic();setTimeout(()=>setFlash(false),350)}},[room.lastMessage]);
-  const tap=()=>{room.send('tap');setHits(v=>v+1);haptic()};
+  useEffect(()=>{if(room.lastMessage?.type==='tap'){setHits(nextSignalCount);setFlash(true);haptic();setTimeout(()=>setFlash(false),350)}},[room.lastMessage]);
+  const tap=()=>{room.send('tap');setHits(nextSignalCount);haptic()};
   return <><RoomPanel room={room}/><section className={`tapstage ${flash?'flash':''}`}><button className="mega" onClick={tap}>TAP</button><BigMetric value={String(hits)} label="SIGNALS"/></section></>;
 }
 
@@ -215,7 +211,7 @@ function PaperCheck(){
       setStatus(`${captured?'OCR failed':'Photo not captured'}: ${detail} Paste/type one item per line below, or try a new photo.`);
     }finally{scanning.current=false;setBusy(false)}
   };
-  const lines=raw.split(/\r?\n/).map(line=>line.replace(/^\s*(?:[-•□☐☑✓✔]|\[(?: |x|X)\]|\d+[.)])\s*/,'').trim()).filter(Boolean);
+  const lines=checklistLines(raw);
   const importRaw=()=>{
     if(!lines.length)return;
     if(items.length&&!window.confirm('Replace the current checklist with the edited text?'))return;
@@ -270,25 +266,19 @@ function PaperCheck(){
 function CompareSound(){
   const [before,setBefore]=useState<number|null>(null); const [after,setAfter]=useState<number|null>(null); const [busy,setBusy]=useState(false);
   const go=async(which:'before'|'after')=>{setBusy(true);try{const r=await sampleMic(1800);which==='before'?setBefore(r.db):setAfter(r.db)}finally{setBusy(false)}};
-  const d=before!=null&&after!=null?after-before:null;
+  const d=relativeLevelChange(before,after);
   return <section className="panel"><div className="panel-title">BEFORE / AFTER</div><p>Keep the phone in the same place and compare two setups under the same sound conditions.</p><div className="twocol"><button onClick={()=>go('before')} disabled={busy}>BEFORE</button><button onClick={()=>go('after')} disabled={busy}>AFTER</button></div><div className="metrics"><BigMetric value={before==null?'—':fmt(before)+' dBFS'} label="BEFORE"/><BigMetric value={after==null?'—':fmt(after)+' dBFS'} label="AFTER"/></div>{d!=null&&<><BigMetric value={(d>0?'+':'')+fmt(d)+' dB'} label="RELATIVE CHANGE"/><ActionShare text={`CompareSound: ${fmt(d)} dB relative before/after change.`}/></>}</section>;
 }
 
 function ShowMeThat(){
-  type Marker={x:number;y:number;shape:'ARROW'|'CIRCLE';color:string};
-  const colors=['#ff345f','#ffdd3c','#16c8ff'];
+  const colors=MARKER_COLORS;
   const room=useRoom();
   const [img,setImg]=useState(''); const [marker,setMarker]=useState<Marker|null>(null);
-  const [shape,setShape]=useState<Marker['shape']>('ARROW'); const [color,setColor]=useState(colors[0]);
+  const [shape,setShape]=useState<Marker['shape']>('ARROW'); const [color,setColor]=useState<string>(colors[0]);
   const [busy,setBusy]=useState(false); const [ready,setReady]=useState(false); const [status,setStatus]=useState('');
   const mounted=useRef(false); const generation=useRef(0); const pending=useRef(false);
-  const validPhoto=(value:unknown):value is string=>typeof value==='string'&&value.length<=12_000_000&&/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
-  const validMarker=(value:unknown):value is Marker|null=>{
-    if(value===null)return true;
-    if(!value||typeof value!=='object')return false;
-    const m=value as Record<string,unknown>;
-    return typeof m.x==='number'&&Number.isFinite(m.x)&&m.x>=0&&m.x<=1&&typeof m.y==='number'&&Number.isFinite(m.y)&&m.y>=0&&m.y<=1&&(m.shape==='ARROW'||m.shape==='CIRCLE')&&typeof m.color==='string'&&colors.includes(m.color);
-  };
+  const validPhoto=isPhotoDataUrl;
+  const validMarker=isMarker;
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;generation.current++}},[]);
   useEffect(()=>{
     generation.current++;pending.current=false;setBusy(false);setImg('');setMarker(null);setReady(false);setStatus('');
@@ -335,7 +325,7 @@ function ShowMeThat(){
             style={{display:'block',maxWidth:'100%',maxHeight:'55vh',width:'auto',height:'auto',objectFit:'contain',cursor:'crosshair',touchAction:'manipulation'}}
             onLoad={()=>setReady(true)} onError={()=>{setReady(false);setStatus('This photo could not be displayed. Try a new photo.')}}
             onClick={event=>{if(!ready)return;const r=event.currentTarget.getBoundingClientRect();if(!r.width||!r.height)return;setMarker({x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height)),shape,color});setStatus('Marker ready. Send to share it.')}}
-            onKeyDown={event=>{if(!ready||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter',' '].includes(event.key))return;event.preventDefault();const x=marker?.x??.5,y=marker?.y??.5;setMarker({x:Math.max(0,Math.min(1,x+(event.key==='ArrowRight'?.02:event.key==='ArrowLeft'?-.02:0))),y:Math.max(0,Math.min(1,y+(event.key==='ArrowDown'?.02:event.key==='ArrowUp'?-.02:0))),shape,color});setStatus('Marker ready. Send to share it.')}}/>
+            onKeyDown={event=>{if(!ready||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter',' '].includes(event.key))return;event.preventDefault();const x=marker?.x??.5,y=marker?.y??.5;setMarker({...nudgeMarker(x,y,event.key),shape,color});setStatus('Marker ready. Send to share it.')}}/>
           {ready&&marker&&<svg aria-label={`${marker.shape.toLowerCase()} marker`} width="48" height="48" viewBox="0 0 48 48" style={{position:'absolute',left:`${marker.x*100}%`,top:`${marker.y*100}%`,transform:marker.shape==='CIRCLE'?'translate(-50%, -50%)':`translate(${marker.x>.5?'-100%':'0'}, ${marker.y>.5?'-100%':'0'}) scale(${marker.x>.5?-1:1}, ${marker.y>.5?-1:1})`,pointerEvents:'none',overflow:'visible',filter:'drop-shadow(0 1px 2px #000)'}}>
             {marker.shape==='CIRCLE'?<><circle cx="24" cy="24" r="18" fill="none" stroke="white" strokeWidth="8"/><circle cx="24" cy="24" r="18" fill="none" stroke={marker.color} strokeWidth="4"/></>:<path d="M 1 1 L 6 24 L 13 17 L 34 38 L 41 31 L 20 10 L 27 3 Z" fill={marker.color} stroke="white" strokeWidth="2" strokeLinejoin="round"/>}
           </svg>}
@@ -390,7 +380,7 @@ function PhabLabPhone(){
   useEffect(()=>()=>{oriStop.current?.();motStop.current?.();mic.stop()},[mic.stop]);
   const toggleOri=async()=>{if(oriOn){oriStop.current?.();oriStop.current=null;setOriOn(false)}else{oriStop.current=await ori.start();setOriOn(true)}};
   const toggleMot=async()=>{if(motOn){motStop.current?.();motStop.current=null;setMotOn(false)}else{motStop.current=await motion.start();setMotOn(true)}};
-  return <><section className="hero-lab"><div className="atom">🧪</div><h1>POCKET SENSOR LAB</h1><p>Use the sensors already inside your phone. Measurements are educational/relative, not certified lab readings.</p></section><section className="gridcards"><button onClick={async()=>{if(micOn){mic.stop();setMicOn(false)}else{await mic.start();setMicOn(true)}}}><span>🎤 MICROPHONE</span><strong>{fmt(mic.db)} dBFS</strong></button><button onClick={toggleOri}><span>📐 ORIENTATION</span><strong>{fmt(ori.beta)}° / {fmt(ori.gamma)}°</strong></button><button onClick={toggleMot}><span>📳 MOTION</span><strong>{fmt(motion.magnitude,2)} m/s²</strong></button><button onClick={()=>beep(660,.2)}><span>🔊 TONE</span><strong>660 Hz</strong></button></section></>;
+  return <><section className="hero-lab"><div className="atom">🧪</div><h1>POCKET SENSOR LAB</h1><p>Use the sensors already inside your phone. Measurements are educational/relative, not certified lab readings.</p></section><section className="gridcards"><button onClick={async()=>{if(micOn){mic.stop();setMicOn(false)}else{await mic.start();setMicOn(true)}}}><span>🎤 MICROPHONE</span><strong>{fmt(mic.db)} dBFS</strong></button><button onClick={toggleOri}><span>📐 ORIENTATION</span><strong>{fmt(ori.beta)}° / {fmt(ori.gamma)}°</strong></button><button onClick={toggleMot}><span>📳 MOTION</span><strong>{fmt(motion.magnitude,2)} m/s²</strong></button><button onClick={()=>beep(POCKET_TONE_HZ,.2)}><span>🔊 TONE</span><strong>{POCKET_TONE_HZ} Hz</strong></button></section></>;
 }
 
 function TwinLevel(){
@@ -548,13 +538,13 @@ function FrameMatch(){
   const capture=async()=>{const d=await takePhotoDataUrl();if(d)setRef(d)};
   const live=async()=>{if(streaming){streamRef.current?.getTracks().forEach(t=>t.stop());setStreaming(false);return}const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});streamRef.current=s;if(video.current){video.current.srcObject=s;await video.current.play()}setStreaming(true)};
   useEffect(()=>()=>streamRef.current?.getTracks().forEach(t=>t.stop()),[]);
-  return <section className="panel"><div className="panel-title">REFERENCE OVERLAY</div><div className="framebox"><video ref={video} playsInline muted/><>{ref&&<img src={ref} style={{opacity}}/>}</></div><div className="twocol"><button onClick={capture}>REFERENCE PHOTO</button><button onClick={live}>{streaming?'STOP CAMERA':'LIVE CAMERA'}</button></div><label className="slider">OVERLAY <input type="range" min="0" max="1" step=".05" value={opacity} onChange={e=>setOpacity(Number(e.target.value))}/></label></section>;
+  return <section className="panel"><div className="panel-title">REFERENCE OVERLAY</div><div className="framebox"><video ref={video} playsInline muted/><>{ref&&<img src={ref} style={{opacity}}/>}</></div><div className="twocol"><button onClick={capture}>REFERENCE PHOTO</button><button onClick={live}>{streaming?'STOP CAMERA':'LIVE CAMERA'}</button></div><label className="slider">OVERLAY <input type="range" min="0" max="1" step=".05" value={opacity} onChange={e=>setOpacity(clampOpacity(Number(e.target.value)))}/></label></section>;
 }
 
 function RelayTap(){
   const room=useRoom(); const [signalAt,setSignalAt]=useState<number|null>(null); const [score,setScore]=useState<number|null>(null); const [board,setBoard]=useState<{id:string;ms:number}[]>([]); const [go,setGo]=useState(false);
-  useEffect(()=>{if(room.lastMessage?.type==='relaygo'){setGo(true);setSignalAt(performance.now());beep(900,.08);haptic()} if(room.lastMessage?.type==='relayscore'){const p=room.lastMessage.payload as any;setBoard(v=>[...v.filter(x=>x.id!==p.id),p].sort((a,b)=>a.ms-b.ms))}},[room.lastMessage]);
+  useEffect(()=>{if(room.lastMessage?.type==='relaygo'){setGo(true);setSignalAt(performance.now());beep(900,.08);haptic()} if(room.lastMessage?.type==='relayscore'){const p=room.lastMessage.payload as any;setBoard(v=>rankByMs([...v.filter(x=>x.id!==p.id),p]))}},[room.lastMessage]);
   const start=()=>{setBoard([]);setScore(null);setGo(false);setTimeout(()=>{room.send('relaygo');setGo(true);setSignalAt(performance.now());beep(900,.08)},700+Math.random()*1800)};
-  const tap=()=>{if(!go||signalAt==null)return;const ms=performance.now()-signalAt;setScore(ms);setGo(false);const p={id:room.code||'LOCAL',ms};setBoard(v=>[...v,p].sort((a,b)=>a.ms-b.ms));room.send('relayscore',p);haptic()};
+  const tap=()=>{const ms=reactionMs(performance.now(),signalAt,go);if(ms==null)return;setScore(ms);setGo(false);const p={id:room.code||'LOCAL',ms};setBoard(v=>rankByMs([...v,p]));room.send('relayscore',p);haptic()};
   return <><RoomPanel room={room}/><section className="relay"><button className="primary" onClick={start}>START RANDOM SIGNAL</button><button className={`mega ${go?'ready':''}`} onClick={tap}>{go?'TAP!':'WAIT'}</button>{score!=null&&<><BigMetric value={fmt(score,0)+' ms'} label="REACTION"/><ActionShare text={`RelayTap reaction: ${fmt(score,0)} ms.`}/></>}<ol className="rank">{board.map((x,i)=><li key={i}><strong>#{i+1}</strong><span>{x.id}</span><small>{fmt(x.ms,0)} ms</small></li>)}</ol></section></>;
 }

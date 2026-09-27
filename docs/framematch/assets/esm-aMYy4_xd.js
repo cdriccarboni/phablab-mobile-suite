@@ -1,0 +1,3 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./web-CU0OtiYv.js","./index-B5YvJ7aI.js","./index-CRqMR2ve.css"])))=>i.map(i=>d[i]);
+import{a as e,t}from"./index-B5YvJ7aI.js";var n=e(`SpeechRecognition`,{web:()=>t(()=>import(`./web-CU0OtiYv.js`).then(e=>new e.SpeechRecognitionWeb),__vite__mapDeps([0,1,2]),import.meta.url)});export{n as SpeechRecognition};
+//# sourceMappingURL=esm-aMYy4_xd.js.map

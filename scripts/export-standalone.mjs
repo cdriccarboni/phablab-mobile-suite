@@ -85,11 +85,18 @@ function exportOne(app) {
   for (const file of ['index.html', 'tsconfig.json', 'vite.config.ts', '.gitignore']) {
     cpSync(join(ROOT, file), join(dest, file));
   }
-  for (const file of ['core.tsx', 'shell.tsx', 'styles.css', 'vite-env.d.ts']) {
+  for (const file of ['core.tsx', 'shell.tsx', 'styles.css', 'vite-env.d.ts', 'logic.ts', 'runtime.ts', 'session.ts', 'app-logic.ts']) {
     cpSync(join(ROOT, 'src', file), join(dest, 'src', file));
+  }
+  if (existsSync(join(ROOT, 'package-lock.json'))) {
+    cpSync(join(ROOT, 'package-lock.json'), join(dest, 'package-lock.json'));
   }
 
   safeWrite(join(dest, 'src/apps.tsx'), makeAppsTsx(app.id, fnName));
+  mkdirSync(join(dest, 'tests'), { recursive: true });
+  for (const file of ['core-logic.mjs', 'app-logic.mjs']) {
+    cpSync(join(ROOT, 'tests', file), join(dest, 'tests', file));
+  }
   safeWrite(join(dest, 'apps.json'), JSON.stringify([app], null, 2) + '\n');
 
   const main = readFileSync(join(ROOT, 'src/main.tsx'), 'utf8')
@@ -107,7 +114,7 @@ function exportOne(app) {
       dev: 'vite',
       typecheck: 'tsc --noEmit',
       build: 'vite build',
-      test: 'tsc --noEmit && vite build',
+      test: 'node --experimental-strip-types tests/core-logic.mjs && node --experimental-strip-types tests/app-logic.mjs && tsc --noEmit && vite build',
     },
   };
   delete pkg.scripts['build:all'];
