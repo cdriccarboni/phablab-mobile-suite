@@ -32,6 +32,8 @@ jobs:
           test -x "$SDKMANAGER" || SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - name: Validate standalone split plan
+        run: node scripts/export-standalone.mjs
       - name: Build web apps
         run: npm run build:all
       - name: Prepare Android base
