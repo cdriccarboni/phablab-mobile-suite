@@ -1,3 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./web-vrRyQC2f.js","./index-BIbjUg-5.js","./index-BvLo2v5k.css"])))=>i.map(i=>d[i]);
-import{a as e,t}from"./index-BIbjUg-5.js";var n=e(`SpeechRecognition`,{web:()=>t(()=>import(`./web-vrRyQC2f.js`).then(e=>new e.SpeechRecognitionWeb),__vite__mapDeps([0,1,2]),import.meta.url)});export{n as SpeechRecognition};
-//# sourceMappingURL=esm-8dJaYG45.js.map
