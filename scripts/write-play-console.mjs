@@ -35,7 +35,11 @@ for (const id of P2_IDS) {
   );
   text = text.replace(
     /\| Permissions \(manifeste fusionné\) \|[^|\n]+\|/,
-    `| Permissions (manifeste fusionné) | ${built.permissions.join(', ')} |`,
+    `| Permissions (manifeste fusionné) | ${built.permissions.join(', ')}, com.phablabphone.${id}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION (AndroidX) |`,
+  );
+  text = text.replace(
+    'Généré le 27/09/2026 à partir du code réel et de l\'APK réel (manifeste fusionné extrait avec androguard).',
+    'Dossier initial du 27/09/2026 (APK 1.0.0, androguard), mis à jour après le build 1.0.1-beta.1. Manifeste fusionné revérifié avec `aapt dump permissions` et `aapt dump badging`.',
   );
   text = text.replace(
     /- URL : https:\/\/cdriccarboni\.github\.io\/phablab-mobile-suite\/confidentialite\/[^\n]+/,
@@ -61,7 +65,19 @@ for (const id of P2_IDS) {
   const qr = P2_ROOM_APPS.includes(id)
     ? 'CAMERA est conservée : le scan QR d’appairage (BarcodeDetector) du patch local est gardé.'
     : 'Cette app n’a pas de salle : CAMERA n’est déclarée que si la fonction elle-même utilise la caméra.';
-  const banner = `> Mise à jour P2 du 27 septembre 2026, alignée sur l'APK debug réellement produit (versionCode ${P2_VERSION_CODE}, versionName ${P2_VERSION_NAME}). SHA-256 APK \`${built.apkSha256}\`. Permissions du manifeste fusionné : ${built.permissions.join(', ') || 'aucune permission gérée'}. ${qr} L'AAB n'est pas signé avec une clé d'envoi Play. Aucune publication Play n'a été faite.\n\n`;
+  text = text.replace(
+    /\*\*Écart \(bloquant qualité, pas bloquant Play\)\*\* : permissions présentes dans l'APK mais \*\*inutilisées\*\* par le code de cette app : \*\*[^*]+\*\*\. Cause : `scripts\/prepare-native\.mjs` ajoute CAMERA et RECORD_AUDIO à toutes les apps\. Correction demandée \(via agent cloud\) : ne déclarer que les permissions utilisées par app\. Exception : si le scan QR d'appairage du patch local non publié \(BarcodeDetector \+ caméra\) est conservé, CAMERA reste justifiée pour les apps à salle\./,
+    `**Écart 1.0.0 corrigé.** Le manifeste fusionné de l'APK ${P2_VERSION_NAME} contient : ${built.permissions.join(', ')}, plus la permission signature AndroidX \`com.phablabphone.${id}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION\`. ${qr}`,
+  );
+  text = text.replace(
+    /Autre écart : icône = icône Capacitor par défaut \(identique pour les 16 apps, logo tiers\) → remplacer par une icône propre à chaque app avant la fiche\./,
+    `Icône Capacitor par défaut remplacée. L'APK embarque l'icône de \`store/play/${id}/\` (emoji de apps.json). Les PNG mipmap diffèrent d'une app à l'autre ; pour WallCheck, le PNG xxxhdpi de l'APK est identique au fichier du dépôt.`,
+  );
+  text = text.replace(
+    /\| Icône 512×512 \| obligatoire \| \*\*Présent\*\*[^\n]+/,
+    `| Icône 512×512 | obligatoire | **Présent** — \`store/play/${id}/icon-512.png\`. L'APK debug embarque le même visuel en mipmap (vérifié : le PNG est dans l'APK, distinct d'une app à l'autre). |`,
+  );
+  const banner = `> Mise à jour P2 du 27 septembre 2026, alignée sur l'APK debug réellement produit (versionCode ${P2_VERSION_CODE}, versionName ${P2_VERSION_NAME}). SHA-256 APK \`${built.apkSha256}\`. Permissions du manifeste fusionné : ${built.permissions.join(', ')}. ${qr} L'AAB n'est pas signé avec une clé d'envoi Play. Aucune publication Play n'a été faite.\n\n`;
   if (!text.startsWith('> Mise à jour P2')) text = banner + text;
   const dir = join(root, 'docs', id);
   mkdirSync(dir, { recursive: true });
