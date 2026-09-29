@@ -1,0 +1,19 @@
+{
+  "id": "papercheck",
+  "name": "Paper → Checklist",
+  "packageName": "com.phablabphone.papercheck",
+  "versionName": "1.0.1-beta.1",
+  "versionCode": 2,
+  "track": "closed-testing",
+  "category": "PRODUCTIVITY",
+  "locale": "fr-FR",
+  "listing": {
+    "shortDescription": "Photographier une liste papier et la transformer en checklist.",
+    "fullDescription": "Paper → Checklist convertit une liste photographiée en éléments que l’on peut cocher sur le téléphone. L’application est destinée aux contrôles rapides, préparations et inventaires de terrain."
+  },
+  "privacy": {
+    "ads": false,
+    "analytics": false,
+    "note": "Brouillon Play à confirmer contre le binaire final et les réponses Data safety."
+  }
+}
