@@ -1,0 +1,19 @@
+{
+  "id": "lagcheck",
+  "name": "LagCheck",
+  "packageName": "com.phablabphone.lagcheck",
+  "versionName": "1.0.1-beta.1",
+  "versionCode": 2,
+  "track": "closed-testing",
+  "category": "TOOLS",
+  "locale": "fr-FR",
+  "listing": {
+    "shortDescription": "Estimer le décalage entre le son et l’image.",
+    "fullDescription": "LagCheck aide à repérer un décalage audio/vidéo lors d’un contrôle technique ou d’une installation. L’outil est pensé pour fournir rapidement un repère exploitable sur le terrain."
+  },
+  "privacy": {
+    "ads": false,
+    "analytics": false,
+    "note": "Brouillon Play à confirmer contre le binaire final et les réponses Data safety."
+  }
+}
