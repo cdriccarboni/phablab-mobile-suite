@@ -1,0 +1,19 @@
+{
+  "id": "showmethat",
+  "name": "ShowMeThat",
+  "packageName": "com.phablabphone.showmethat",
+  "versionName": "1.0.1-beta.1",
+  "versionCode": 2,
+  "track": "closed-testing",
+  "category": "PRODUCTIVITY",
+  "locale": "fr-FR",
+  "listing": {
+    "shortDescription": "Envoyer instantanément une photo vers un autre écran.",
+    "fullDescription": "ShowMeThat permet de prendre ou choisir une image puis de l’afficher immédiatement sur un autre téléphone. Pratique pour transmettre une référence visuelle en répétition, atelier ou installation."
+  },
+  "privacy": {
+    "ads": false,
+    "analytics": false,
+    "note": "Brouillon Play à confirmer contre le binaire final et les réponses Data safety."
+  }
+}
