@@ -1,8 +1,10 @@
 import json
-import os
 import shutil
+from io import BytesIO
 from pathlib import Path
-from PIL import Image, ImageDraw
+
+import cairosvg
+from PIL import Image, ImageDraw, UnidentifiedImageError
 
 ROOT = Path(__file__).resolve().parent.parent
 play = json.loads((ROOT / "play-app.json").read_text(encoding="utf-8"))
@@ -14,15 +16,25 @@ store = ROOT / "store" / "play" / app_id
 icon_existing = store / "icon-512.png"
 feature_existing = store / "feature-1024x500.png"
 
+def load_logo():
+    png = ROOT / "public" / "logos" / f"{app_id}.png"
+    if png.exists():
+        try:
+            return Image.open(png).convert("RGBA")
+        except UnidentifiedImageError:
+            pass
+    svg = ROOT / "public" / "logos" / f"{app_id}.svg"
+    if not svg.exists():
+        raise SystemExit(f"Missing usable logo source for {app_id}")
+    data = cairosvg.svg2png(url=str(svg), output_width=512, output_height=512)
+    return Image.open(BytesIO(data)).convert("RGBA")
+
 if icon_existing.exists():
     shutil.copy2(icon_existing, out / "icon-512.png")
 else:
-    src = ROOT / "public" / "logos" / f"{app_id}.png"
-    if not src.exists():
-        raise SystemExit(f"Missing logo for {app_id}")
-    logo = Image.open(src).convert("RGBA")
+    logo = load_logo()
     canvas = Image.new("RGBA", (512, 512), (20, 24, 32, 255))
-    logo.thumbnail((360, 360), Image.Resampling.LANCZOS)
+    logo.thumbnail((420, 420), Image.Resampling.LANCZOS)
     canvas.alpha_composite(logo, ((512-logo.width)//2, (512-logo.height)//2))
     canvas.convert("RGB").save(out / "icon-512.png", quality=95)
 
