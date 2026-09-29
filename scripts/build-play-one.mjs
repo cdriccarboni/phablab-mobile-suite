@@ -6,7 +6,6 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { versionFor, isP2, P2_PERMISSIONS, applyAndroidManifest } from './p2-config.mjs';
-import { stampLauncher } from './stamp-launcher.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const sdk = process.env.ANDROID_SDK_ROOT || process.env.ANDROID_HOME;
@@ -87,7 +86,7 @@ if (existsSync(storeRes)) {
   rmSync(join(androidRes, 'drawable-v24', 'ic_launcher_foreground.xml'), { force: true });
   cpSync(storeRes, androidRes, { recursive: true });
 } else {
-  stampLauncher(androidRes, id, root);
+  run('python3', ['scripts/prepare-android-launcher.py', androidRes, id], root);
 }
 
 run(join(android, 'gradlew'), [':app:clean', ':app:assembleDebug', ':app:bundleRelease', '--console=plain'], android);
