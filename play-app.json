@@ -1,0 +1,19 @@
+{
+  "id": "tapback",
+  "name": "TapBack",
+  "packageName": "com.phablabphone.tapback",
+  "versionName": "1.0.1-beta.1",
+  "versionCode": 2,
+  "track": "closed-testing",
+  "category": "TOOLS",
+  "locale": "fr-FR",
+  "listing": {
+    "shortDescription": "Envoyer un signal tactile ou visuel à un autre téléphone.",
+    "fullDescription": "TapBack relie plusieurs téléphones pour envoyer un signal simple à distance. Selon l’appareil, le retour peut utiliser vibration, flash ou affichage afin de créer une commande discrète et immédiate."
+  },
+  "privacy": {
+    "ads": false,
+    "analytics": false,
+    "note": "Brouillon Play à confirmer contre le binaire final et les réponses Data safety."
+  }
+}
