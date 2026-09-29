@@ -1,0 +1,38 @@
+name: Export 16 standalone apps
+
+on:
+  push:
+    branches:
+      - chatgpt/google-play-beta-20260929
+    paths:
+      - "apps.json"
+      - "scripts/export-standalone.mjs"
+      - ".github/workflows/export-standalone-16.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/google-play-beta-20260929
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Regenerate all 16 standalone projects
+        run: node scripts/export-standalone.mjs --apply
+      - name: Commit generated standalone projects
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .split
+          if git diff --cached --quiet; then
+            echo "No standalone changes"
+          else
+            git commit -m "chore: regenerate 16 standalone app exports"
+            git push origin HEAD:chatgpt/google-play-beta-20260929
+          fi
