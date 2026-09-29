@@ -1,0 +1,82 @@
+name: Build one Play AAB
+
+on:
+  push:
+    branches:
+      - 'play/*-beta'
+    paths:
+      - 'play-app.json'
+      - 'src/**'
+      - 'scripts/**'
+      - 'apps.json'
+      - 'package*.json'
+      - 'android-base/**'
+      - 'store/**'
+      - 'capacitor.config.ts'
+      - '.github/workflows/play-aab-one.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      PHABLAB_UPLOAD_STORE_PASSWORD: ${{ secrets.PHABLAB_UPLOAD_STORE_PASSWORD }}
+      PHABLAB_UPLOAD_KEY_ALIAS: ${{ secrets.PHABLAB_UPLOAD_KEY_ALIAS }}
+      PHABLAB_UPLOAD_KEY_PASSWORD: ${{ secrets.PHABLAB_UPLOAD_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests and typecheck
+        run: |
+          npm test
+          npm run typecheck
+
+      - name: Android API 36
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          test -x "$SDKMANAGER" || SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore shared Play upload key when configured
+        env:
+          PHABLAB_UPLOAD_KEYSTORE_B64: ${{ secrets.PHABLAB_UPLOAD_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$PHABLAB_UPLOAD_KEYSTORE_B64" ]; then
+            printf '%s' "$PHABLAB_UPLOAD_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/phablab-upload.jks"
+            echo "PHABLAB_UPLOAD_STORE_FILE=$RUNNER_TEMP/phablab-upload.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build isolated app bundle
+        run: node scripts/build-play-one.mjs
+
+      - name: Prepare Play listing assets
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 scripts/prepare-play-assets.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: play-${{ github.ref_name }}-${{ github.sha }}
+          path: release/play/**
+          if-no-files-found: error
+          retention-days: 30
