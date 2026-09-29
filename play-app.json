@@ -1,0 +1,19 @@
+{
+  "id": "captioncast",
+  "name": "CaptionCast",
+  "packageName": "com.phablabphone.captioncast",
+  "versionName": "1.0.1-beta.1",
+  "versionCode": 2,
+  "track": "closed-testing",
+  "category": "PRODUCTIVITY",
+  "locale": "fr-FR",
+  "listing": {
+    "shortDescription": "Afficher en direct des sous-titres sur un autre téléphone.",
+    "fullDescription": "CaptionCast transforme la parole captée sur un téléphone en sous-titres lisibles sur un autre écran. Une solution légère pour répétitions, ateliers, plateau et besoins d’accessibilité ponctuels."
+  },
+  "privacy": {
+    "ads": false,
+    "analytics": false,
+    "note": "Brouillon Play à confirmer contre le binaire final et les réponses Data safety."
+  }
+}
