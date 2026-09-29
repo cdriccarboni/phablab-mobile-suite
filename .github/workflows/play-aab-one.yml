@@ -37,7 +37,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -66,13 +66,14 @@ jobs:
             echo "PHABLAB_UPLOAD_STORE_FILE=$RUNNER_TEMP/phablab-upload.jks" >> "$GITHUB_ENV"
           fi
 
+      - name: Install image tooling
+        run: python3 -m pip install --quiet pillow cairosvg
+
       - name: Build isolated app bundle
         run: node scripts/build-play-one.mjs
 
       - name: Prepare Play listing assets
-        run: |
-          python3 -m pip install --quiet pillow
-          python3 scripts/prepare-play-assets.py
+        run: python3 scripts/prepare-play-assets.py
 
       - uses: actions/upload-artifact@v4
         with:
