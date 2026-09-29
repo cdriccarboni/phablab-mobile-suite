@@ -1,0 +1,19 @@
+{
+  "id": "signme",
+  "name": "SignMe",
+  "packageName": "com.phablabphone.signme",
+  "versionName": "1.0.1-beta.1",
+  "versionCode": 2,
+  "track": "closed-testing",
+  "category": "TOOLS",
+  "locale": "fr-FR",
+  "listing": {
+    "shortDescription": "Transformer un téléphone en panneau distant.",
+    "fullDescription": "SignMe permet d’utiliser un téléphone comme afficheur distant pour montrer rapidement un mot, une consigne ou un message. L’affichage peut être piloté depuis un autre appareil."
+  },
+  "privacy": {
+    "ads": false,
+    "analytics": false,
+    "note": "Brouillon Play à confirmer contre le binaire final et les réponses Data safety."
+  }
+}
