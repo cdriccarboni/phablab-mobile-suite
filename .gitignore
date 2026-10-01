@@ -3,7 +3,6 @@ dist/
 android/
 ios/
 release/
-.split/
 .DS_Store
 *.log
 local.properties

@@ -1,6 +1,6 @@
 import type Peer from 'peerjs';
 import type { DataConnection } from 'peerjs';
-import { isMessage, normalizeRoom, SeenMessages, type WireMessage } from './logic.ts';
+import { isMessage, normalizeRoom, SeenMessages, type WireMessage } from './logic';
 
 export type SessionState = { code: string; status: 'idle'|'opening'|'host'|'guest'|'disconnected'|'error'; role: 'host'|'guest'|null; members: number; error: string; presence: string[] };
 const initial = (): SessionState => ({code:'',status:'idle',role:null,members:0,error:'',presence:[]});
@@ -14,18 +14,7 @@ export class Session {
   private messagePrefix = crypto.randomUUID();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private listeners = new Set<(message: WireMessage) => void>();
-  private factory: (id?: string) => Peer;
-  readonly identity: string;
-  private app: string;
-  private changed: (state: SessionState) => void;
-  private timeoutMs: number;
-  constructor(factory: (id?: string) => Peer, identity: string, app: string, changed: (state: SessionState) => void, timeoutMs = 15000) {
-    this.factory = factory;
-    this.identity = identity;
-    this.app = app;
-    this.changed = changed;
-    this.timeoutMs = timeoutMs;
-  }
+  constructor(private factory: (id?: string) => Peer, readonly identity: string, private app: string, private changed: (s: SessionState) => void) {}
   subscribe = (listener: (message: WireMessage) => void) => { this.listeners.add(listener); return () => {this.listeners.delete(listener);}; };
   private update(patch: Partial<SessionState>) { this.state = {...this.state,...patch}; this.changed(this.state); }
   private dispose() {
@@ -53,7 +42,7 @@ export class Session {
     this.update({code,role,status:'opening',members:0,presence:[],error:''});
     const hostId = `phab2-${this.app}-${code.toLowerCase()}`;
     const p = this.factory(role === 'host' ? hostId : undefined); this.peer = p;
-    this.timer = setTimeout(() => { if (current() && this.state.status === 'opening') { this.dispose(); this.update({status:'error',error:'Connection timed out. Check the code and network, then reconnect.'}); } }, this.timeoutMs);
+    this.timer = setTimeout(() => { if (current() && this.state.status === 'opening') { this.dispose(); this.update({status:'error',error:'Connection timed out. Check the code and network, then reconnect.'}); } },15000);
     p.on('open', () => {
       if (!current()) return;
       if (role === 'host') { clearTimeout(this.timer); this.update({status:'host',presence:[this.identity]}); }
