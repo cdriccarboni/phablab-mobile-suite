@@ -1,3 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./web-CI9GSmWG.js","./index-C7LpJ8li.js","./index-BvLo2v5k.css"])))=>i.map(i=>d[i]);
-import{a as e,t}from"./index-C7LpJ8li.js";var n;(function(e){e.Latin=`LATIN`,e.Chinese=`CHINESE`,e.Devanagari=`DEVANAGARI`,e.Japanese=`JAPANESE`,e.Korean=`KOREAN`})(n||={});var r=e(`TextRecognition`,{web:()=>t(()=>import(`./web-CI9GSmWG.js`).then(e=>new e.TextRecognitionWeb),__vite__mapDeps([0,1,2]),import.meta.url)});export{r as TextRecognition};
-//# sourceMappingURL=esm-CQ2Bg-LL.js.map
