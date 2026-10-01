@@ -1,34 +1,20 @@
-# PhabLab Mobile Suite
+# SoundRace
 
-Legacy migration source for the PhabLab mobile mini-apps.
+Which phone heard it first?
 
-This repository is **not** the intended permanent home for the applications below. Each standalone app is being tracked for migration to its own GitHub repository.
+Race sound across multiple phones
 
-## Applications currently grouped here
+- Package Android : `com.phablabphone.soundrace`
+- Version : 1.0.1 (versionCode 2)
+- Branche prévue : `grok/soundrace-finalisation-20260927`
 
-- TwinLevel
-- SensorLink
-- SyncMark
-- SoundRace
-- WallCheck
-- CaptionCast
-- SignMe
-- LagCheck
-- TapBack
-- Paper → Checklist
-- CompareSound
-- ShowMeThat
-- CountTogether
-- PhabLabPhone
-- FrameMatch
-- RelayTap
+Projet autonome généré depuis `cdriccarboni/phablab-mobile-suite`. Le script ne crée pas de dépôt et ne pousse rien.
 
-## Repository policy
+```sh
+npm install
+npm test
+npm run build
+```
 
-- Do not add new standalone applications to this suite.
-- Preserve this repository as a migration source until every app has an independent, verified home.
-- New standalone repositories should be **private by default** unless publication is intentional.
-- Do not store personal account identifiers, local machine paths, credentials, signing keys or secrets in source control.
-- Archive this repository only after all 16 migrations and their relevant build artifacts have been verified.
+Pour un dépôt privé vide, sans force-push : voir `PUSH.md`.
 
-The canonical migration registry is maintained privately in CX hub.
