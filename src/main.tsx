@@ -8,8 +8,8 @@ import './styles.css';
 export type AppMeta = (typeof catalog)[number];
 
 const params = new URLSearchParams(location.search);
-const requested = import.meta.env.VITE_APP_ID || params.get('app') || 'phablabphone';
-const meta = (catalog as AppMeta[]).find((a) => a.id === requested) ?? (catalog as AppMeta[]).find((a) => a.id === 'phablabphone')!;
+const requested = import.meta.env.VITE_APP_ID || params.get('app') || 'papercheck';
+const meta = (catalog as AppMeta[]).find((a) => a.id === requested) ?? (catalog as AppMeta[])[0]!;
 
 document.title = meta.name;
 createRoot(document.getElementById('root')!).render(
