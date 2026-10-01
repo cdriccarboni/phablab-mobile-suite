@@ -1,8 +1,0 @@
-node_modules/
-dist/
-android/
-ios/
-release/
-.split/
-.DS_Store
-*.log
