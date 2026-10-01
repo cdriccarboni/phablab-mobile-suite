@@ -1,5 +1,4 @@
 import { Capacitor } from '@capacitor/core';
-import { restoreState } from './logic.ts';
 
 export function capabilities() {
   return {
@@ -14,16 +13,9 @@ export function capabilities() {
   };
 }
 
-export function loadLocal<T>(key: string, fallback: T, valid: (v: unknown) => v is T): { state: T; restored: boolean; invalid: boolean } {
-  try {
-    const raw = localStorage.getItem(`phab:${key}`);
-    if (raw === null) return { state: fallback, restored: false, invalid: false };
-    const parsed = restoreState(raw, valid, fallback);
-    return { state: parsed.state, restored: parsed.restored, invalid: !parsed.restored };
-  } catch { return { state: fallback, restored: false, invalid: true }; }
-}
 export function readLocal<T>(key: string, fallback: T, valid: (v: unknown) => v is T): T {
-  return loadLocal(key, fallback, valid).state;
+  try { const value: unknown = JSON.parse(localStorage.getItem(`phab:${key}`) || 'null'); return valid(value) ? value : fallback; }
+  catch { return fallback; }
 }
 export function writeLocal(key: string, value: unknown) {
   try { localStorage.setItem(`phab:${key}`, JSON.stringify(value)); return true; } catch { return false; }
@@ -58,14 +50,12 @@ export function stopResources() { for (const scope of scopes) scope.close(); }
 export function resourceScope() {
   const scope = new ResourceScope();
   scopes.add(scope); scope.own(() => scopes.delete(scope));
-  if (typeof document !== 'undefined' && document.hidden) scope.close();
+  if (document.hidden) scope.close();
   return scope;
 }
-if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', () => { if (document.hidden) stopResources(); });
-  window.addEventListener('pagehide', stopResources);
-}
-if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopResources(); });
+window.addEventListener('pagehide', stopResources);
+if (Capacitor.isNativePlatform()) {
   void import('@capacitor/app').then(({ App }) => App.addListener('appStateChange', ({ isActive }) => {
     if (!isActive) { stopResources(); window.dispatchEvent(new Event('phab:pause')); }
   })).catch(() => { /* Web visibility remains available. */ });
