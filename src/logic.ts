@@ -55,8 +55,7 @@ export function avOffset(audio: number | null, light: number | null) {
 export type LevelReference = { b: number; g: number };
 export function isLevelReference(value: unknown): value is LevelReference {
   const v = value as LevelReference | null;
-  // Gamma from the device is usually within ±90°. A local zero can produce a wider relative angle, still bounded by ±180°.
-  return !!v && Number.isFinite(v.b) && Number.isFinite(v.g) && Math.abs(v.b) <= 180 && Math.abs(v.g) <= 180;
+  return !!v && Number.isFinite(v.b) && Number.isFinite(v.g) && Math.abs(v.b) <= 180 && Math.abs(v.g) <= 90;
 }
 export function levelDifference(reading: LevelReference, reference: LevelReference | null) {
   if (!reference || !isLevelReference(reading) || !isLevelReference(reference)) return null;
@@ -91,98 +90,6 @@ export function addRaceResult(results: RaceResult[], id: string, time: unknown):
   return [...results, {id, t: time}].sort((a,b) => a.t-b.t || a.id.localeCompare(b.id));
 }
 export function raceDeltas(results: RaceResult[]) {
-  if (!results.length) return [];
   const first = Math.min(...results.map(r => r.t));
   return results.map(r => ({...r, delta: r.t-first}));
-}
-
-/** Local offset: the chosen pose reads 0° on both axes. Degrees, not a factory calibration. */
-export function applyLevelZero(reading: LevelReference, zero: LevelReference | null): LevelReference | null {
-  if (!isLevelReference(reading)) return null;
-  if (zero === null) return { b: reading.b, g: reading.g };
-  if (!isLevelReference(zero)) return null;
-  const next = { b: angleDelta(reading.b, zero.b), g: angleDelta(reading.g, zero.g) };
-  return isLevelReference(next) ? next : null;
-}
-
-export type TwinStore = { version: 1; reference: LevelReference | null; zero: LevelReference | null };
-export function isTwinStore(value: unknown): value is TwinStore {
-  if (!value || typeof value !== 'object') return false;
-  const store = value as TwinStore;
-  const tilt = (item: unknown) => item === null || isLevelReference(item);
-  return store.version === 1 && tilt(store.reference) && tilt(store.zero);
-}
-
-export type SensorSelection = { sound: boolean; tilt: boolean; motion: boolean };
-export type SensorLinkStore = { version: 1; selected: SensorSelection; tare: number | null; lastRemote: SensorSample | null; stats: SensorStats };
-export function emptySensorLinkStore(): SensorLinkStore {
-  return { version: 1, selected: { sound: true, tilt: true, motion: true }, tare: null, lastRemote: null, stats: {} };
-}
-export function isSensorStats(value: unknown): value is SensorStats {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return Object.entries(value).every(([key, item]) => {
-    if (key !== 'db' && key !== 'beta' && key !== 'gamma' && key !== 'motion') return false;
-    if (!item || typeof item !== 'object') return false;
-    const stat = item as { min?: unknown; max?: unknown };
-    return typeof stat.min === 'number' && typeof stat.max === 'number' && Number.isFinite(stat.min) && Number.isFinite(stat.max) && stat.min <= stat.max;
-  });
-}
-export function isSensorLinkStore(value: unknown): value is SensorLinkStore {
-  if (!value || typeof value !== 'object') return false;
-  const store = value as SensorLinkStore;
-  const selected = store.selected;
-  if (store.version !== 1 || !selected || typeof selected.sound !== 'boolean' || typeof selected.tilt !== 'boolean' || typeof selected.motion !== 'boolean') return false;
-  if (store.tare !== null && (typeof store.tare !== 'number' || !Number.isFinite(store.tare))) return false;
-  if (store.lastRemote !== null) {
-    if (!store.lastRemote || typeof store.lastRemote !== 'object' || Array.isArray(store.lastRemote)) return false;
-    if (Object.keys(store.lastRemote).length !== Object.keys(sensorSample(store.lastRemote)).length) return false;
-  }
-  return isSensorStats(store.stats);
-}
-/** Subtract a stored accelerationIncludingGravity reading. Result stays in m/s² and is relative, not calibrated. */
-export function relativeMotion(magnitude: number, tare: number | null): number | null {
-  if (!Number.isFinite(magnitude)) return null;
-  if (tare === null) return magnitude;
-  if (!Number.isFinite(tare)) return null;
-  return magnitude - tare;
-}
-
-export type SyncStore = { version: 1; delay: number; marks: number[] };
-export function isSyncStore(value: unknown): value is SyncStore {
-  if (!value || typeof value !== 'object') return false;
-  const store = value as SyncStore;
-  return store.version === 1 && markDelay(store.delay) !== null && Array.isArray(store.marks) && store.marks.length <= 8 &&
-    store.marks.every(mark => Number.isSafeInteger(mark) && mark >= 0);
-}
-
-export function isRaceResult(value: unknown): value is RaceResult {
-  if (!value || typeof value !== 'object') return false;
-  const result = value as RaceResult;
-  return typeof result.id === 'string' && result.id.length > 0 && result.id.length <= 120 && Number.isSafeInteger(result.t) && result.t >= 0;
-}
-export function isRaceList(value: unknown): value is RaceResult[] {
-  return Array.isArray(value) && value.length <= 16 && value.every(isRaceResult) && new Set(value.map(result => result.id)).size === value.length;
-}
-export type SoundStore = { version: 1; threshold: number; heard: RaceResult[] };
-export function isSoundStore(value: unknown): value is SoundStore {
-  if (!value || typeof value !== 'object') return false;
-  const store = value as SoundStore;
-  return store.version === 1 && typeof store.threshold === 'number' && store.threshold >= 0.05 - 1e-9 && store.threshold <= 0.35 + 1e-9 && isRaceList(store.heard);
-}
-/** 1 s ambient peak → threshold. Dimensionless full-scale RMS, clamped to 0.05–0.35. Not a detection guarantee. */
-export function suggestRaceThreshold(peak: number): { suggested: number; clipped: boolean } | null {
-  if (!Number.isFinite(peak) || peak < 0) return null;
-  const target = Math.max(0.05, peak * 1.5);
-  const steps = Math.ceil(Number((target * 100).toFixed(8))) / 100;
-  return { suggested: Math.min(0.35, steps), clipped: target > 0.35 };
-}
-
-export function restoreState<T>(raw: string | null, valid: (value: unknown) => value is T, fallback: T): { state: T; restored: boolean } {
-  if (raw === null) return { state: fallback, restored: false };
-  try {
-    const value: unknown = JSON.parse(raw);
-    return valid(value) ? { state: value, restored: true } : { state: fallback, restored: false };
-  } catch {
-    return { state: fallback, restored: false };
-  }
 }
