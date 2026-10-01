@@ -6,7 +6,3 @@ release/
 .split/
 .DS_Store
 *.log
-local.properties
-*.jks
-*.keystore
-google-services.json
