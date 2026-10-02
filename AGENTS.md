@@ -1,3 +1,18 @@
+# PhabLab Mobile Suite — règles produit spécifiques
+
+Ce dépôt est un socle historique/partagé et une base de migration pour les mini-apps PhabLab. Il ne remplace pas leur identité autonome.
+
+Règles durables :
+- chaque mini-app reste un produit distinct avec nom, version, package, tests, documentation, artefacts et futur dépôt propres ;
+- les `.split/` et `exports/` sont des racines d’app réelles : respecter leur `AGENTS.md` spécifique ;
+- un moteur partagé peut être mutualisé, mais jamais au prix d’une fusion fonctionnelle des apps ;
+- toute modification du socle partagé doit être testée sur les apps impactées ;
+- conserver le monorepo comme base historique/migration tant que les dépôts autonomes ne sont pas tous extraits ;
+- lors d’une extraction, emporter code, tests, assets, historique utile et `AGENTS.md` spécifique ;
+- publication Play : une app = applicationId, version/versionCode, AAB signé, fiche et canal beta propres.
+
+---
+
 # AGENTS.md — règles durables de collaboration
 
 Ces règles s'appliquent à tout agent ou assistant qui intervient sur ce dépôt.
