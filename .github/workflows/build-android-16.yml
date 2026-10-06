@@ -1,4 +1,5 @@
-name: Build 16 Android APKs
+name: Build 16 Android APKs + AABs
+
 on:
   workflow_dispatch:
   push:
@@ -6,14 +7,20 @@ on:
     paths:
       - 'src/**'
       - 'scripts/**'
+      - 'tests/**'
       - 'apps.json'
       - 'package*.json'
       - 'android-base/**'
+      - 'store/**'
       - '.github/workflows/build-android-16.yml'
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,15 +33,18 @@ jobs:
           java-version: '21'
       - name: Install dependencies
         run: npm ci
+      - name: Validate suite
+        run: |
+          npm test
+          npm run typecheck
+          node scripts/export-standalone.mjs
       - name: Install Android API 36
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
           test -x "$SDKMANAGER" || SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-      - name: Validate standalone split plan
-        run: node scripts/export-standalone.mjs
-      - name: Build web apps
+      - name: Build 16 web apps
         run: npm run build:all
       - name: Prepare Android base
         run: |
@@ -42,10 +52,38 @@ jobs:
           cp -R android-base android
           chmod +x android/gradlew
           MOBILE_APP_ID=phablabphone MOBILE_APP_NAME=PhabLabPhone VITE_APP_ID=phablabphone npx cap sync android
-      - name: Build and verify 16 APKs
+      - name: Build and verify 16 APKs + AABs
         run: node scripts/build-android-shared.mjs
+      - name: Build checksum inventory
+        shell: bash
+        run: |
+          find release/apk release/aab -type f -print0 | sort -z | xargs -0 sha256sum > release/SHA256SUMS.txt
+          test "$(find release/apk -name '*.apk' | wc -l | tr -d ' ')" = "16"
+          test "$(find release/aab -name '*.aab' | wc -l | tr -d ' ')" = "16"
       - uses: actions/upload-artifact@v4
         with:
-          name: phablab-16-apks
-          path: release/
+          name: phablab-16-android
+          path: |
+            release/apk/*
+            release/aab/*
+            release/manifest.json
+            release/SHA256SUMS.txt
           if-no-files-found: error
+      - name: Publish suite test release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="suite-v$VERSION-test"
+          TITLE="PhabLab Mobile Suite $VERSION — 16 Android builds"
+          NOTES="16 APK debug + 16 AAB release non signés, produits après tests, typecheck et vérification des packages. Les AAB doivent être signés avec les clés Play propres à chaque application avant publication."
+          FILES=(release/apk/*.apk release/aab/*.aab release/manifest.json release/SHA256SUMS.txt)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
+          else
+            gh release create "$TAG" "${FILES[@]}" --prerelease --title "$TITLE" --notes "$NOTES"
+          fi

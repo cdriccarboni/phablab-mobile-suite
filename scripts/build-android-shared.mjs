@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
-  readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, copyFileSync
+  readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, copyFileSync, existsSync
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +19,10 @@ const run = (cmd, args, cwd = root) => {
   const r = spawnSync(cmd, args, { cwd, stdio: 'inherit', env: process.env });
   if (r.status !== 0) throw new Error(`${cmd} exited ${r.status}`);
 };
-const outDir = join(root, 'release', 'apk');
-mkdirSync(outDir, { recursive: true });
+const apkDir = join(root, 'release', 'apk');
+const aabDir = join(root, 'release', 'aab');
+mkdirSync(apkDir, { recursive: true });
+mkdirSync(aabDir, { recursive: true });
 const gradleFile = join(android, 'app', 'build.gradle');
 const stringsFile = join(android, 'app', 'src', 'main', 'res', 'values', 'strings.xml');
 const configFile = join(android, 'app', 'src', 'main', 'assets', 'capacitor.config.json');
@@ -62,20 +64,40 @@ for (const app of catalog) {
   rmSync(publicDir, { recursive: true, force: true });
   cpSync(join(root, 'dist', app.id), publicDir, { recursive: true });
 
-  run(gradlew, ['assembleDebug', '--console=plain'], android);
-  const built = join(android, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
-  const target = join(outDir, `${app.id}-${version.versionName}.apk`);
-  copyFileSync(built, target);
+  run(gradlew, [':app:clean', ':app:assembleDebug', ':app:bundleRelease', '--console=plain'], android);
+  const apkBuilt = join(android, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
+  const aabBuilt = join(android, 'app', 'build', 'outputs', 'bundle', 'release', 'app-release.aab');
+  if (!existsSync(apkBuilt) || !existsSync(aabBuilt)) throw new Error(`Missing Android artifact for ${app.id}`);
+  const apkName = `${app.id}-${version.versionName}-debug.apk`;
+  const aabName = `${app.id}-${version.versionName}-unsigned.aab`;
+  const apkTarget = join(apkDir, apkName);
+  const aabTarget = join(aabDir, aabName);
+  copyFileSync(apkBuilt, apkTarget);
+  copyFileSync(aabBuilt, aabTarget);
 
-  run(signer, ['verify', '--verbose', target]);
-  const badging = spawnSync(aapt, ['dump', 'badging', target], { encoding: 'utf8' });
+  run(signer, ['verify', '--verbose', apkTarget]);
+  const badging = spawnSync(aapt, ['dump', 'badging', apkTarget], { encoding: 'utf8' });
   if (badging.status !== 0 || !badging.stdout.includes(`package: name='${pkg}'`)) {
     throw new Error(`Package verification failed for ${app.id}`);
   }
-  const hash = createHash('sha256').update(readFileSync(target)).digest('hex');
-  manifest.push({ id: app.id, name: app.name, packageName: pkg, versionName: version.versionName, versionCode: version.versionCode, apk: `apk/${app.id}-${version.versionName}.apk`, sha256: hash });
-  console.log(`OK ${app.name}: ${target}`);
+  const listing = spawnSync('jar', ['tf', aabTarget], { encoding:'utf8' });
+  if (listing.status !== 0) throw new Error(`AAB verification failed for ${app.id}`);
+  const apkSha256 = createHash('sha256').update(readFileSync(apkTarget)).digest('hex');
+  const aabSha256 = createHash('sha256').update(readFileSync(aabTarget)).digest('hex');
+  manifest.push({
+    id: app.id,
+    name: app.name,
+    packageName: pkg,
+    versionName: version.versionName,
+    versionCode: version.versionCode,
+    apk: `apk/${apkName}`,
+    aab: `aab/${aabName}`,
+    apkSha256,
+    aabSha256,
+    aabPlayUploadSigned: false,
+  });
+  console.log(`OK ${app.name}: APK ${apkSha256.slice(0,12)} · AAB ${aabSha256.slice(0,12)}`);
 }
 
 writeFileSync(join(root, 'release', 'manifest.json'), JSON.stringify(manifest, null, 2));
-console.log(`\nDONE: ${manifest.length} verified APKs.`);
+console.log(`\nDONE: ${manifest.length} verified APKs + unsigned AABs.`);
