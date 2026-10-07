@@ -5,6 +5,8 @@ import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLISH_TOKEN = String(process.env.PUBLISH_TOKEN || "");
+const OWNER_PAIR_PIN = String(process.env.OWNER_PAIR_PIN || "");
+const OWNER_ORIGINS = String(process.env.OWNER_ORIGINS || "https://cdriccarboni.github.io,null,http://localhost:3000,http://127.0.0.1:3000").split(",").map(v=>v.trim()).filter(Boolean);
 const MEDIAMTX_RTMP_URL = String(process.env.MEDIAMTX_RTMP_URL || "rtmp://mediamtx.railway.internal:1935/radio");
 const ALLOW_ORIGIN = String(process.env.ALLOW_ORIGIN || "https://art.acousmatic-theatre.fr");
 const STATION = String(process.env.STATION || "Radio Paillettes");
@@ -14,7 +16,9 @@ let startedAt = 0;
 let mp3 = null;
 let rtmp = null;
 let lastError = "";
+let mediaMode = "audio";
 const listeners = new Set();
+const pairFailures = new Map();
 
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin", ALLOW_ORIGIN === "*" ? "*" : ALLOW_ORIGIN);
@@ -64,9 +68,10 @@ function pipeErrors(proc, label) {
   });
 }
 
-function startPipelines() {
+function startPipelines(mode = "audio") {
   stopPipelines();
   lastError = "";
+  mediaMode = mode === "video" ? "video" : "audio";
 
   mp3 = spawn("ffmpeg", [
     "-hide_banner", "-loglevel", "warning",
@@ -81,18 +86,31 @@ function startPipelines() {
     "pipe:1"
   ], { stdio: ["pipe", "pipe", "pipe"] });
 
-  rtmp = spawn("ffmpeg", [
+  const rtmpArgs = [
     "-hide_banner", "-loglevel", "warning",
     "-fflags", "nobuffer",
-    "-i", "pipe:0",
-    "-vn",
+    "-i", "pipe:0"
+  ];
+  if (mediaMode === "video") {
+    rtmpArgs.push(
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-tune", "zerolatency",
+      "-pix_fmt", "yuv420p",
+      "-g", "60"
+    );
+  } else {
+    rtmpArgs.push("-vn");
+  }
+  rtmpArgs.push(
     "-c:a", "aac",
     "-b:a", "128k",
     "-ar", "48000",
     "-ac", "2",
     "-f", "flv",
     MEDIAMTX_RTMP_URL
-  ], { stdio: ["pipe", "ignore", "pipe"] });
+  );
+  rtmp = spawn("ffmpeg", rtmpArgs, { stdio: ["pipe", "ignore", "pipe"] });
 
   mp3.stdout.on("data", broadcastMp3);
   pipeErrors(mp3, "ffmpeg-mp3");
@@ -122,6 +140,34 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { ok: true, service: "radio-paillettes-relay" });
   }
 
+  if (url.pathname === "/pair" && req.method === "POST") {
+    const origin = String(req.headers.origin || "null");
+    if (!OWNER_ORIGINS.includes(origin)) return json(res, 403, { ok:false, error:"origin_not_allowed" });
+    const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+    const now = Date.now();
+    const previous = pairFailures.get(ip) || { count:0, until:0 };
+    if (previous.until > now) return json(res, 429, { ok:false, error:"try_later" });
+    let body = "";
+    req.on("data", chunk => { body += chunk; if (body.length > 4096) req.destroy(); });
+    req.on("end", () => {
+      let pin = "";
+      try { pin = String(JSON.parse(body || "{}").pin || ""); } catch {}
+      if (!OWNER_PAIR_PIN || pin !== OWNER_PAIR_PIN) {
+        const count = previous.count + 1;
+        pairFailures.set(ip, { count, until: count >= 5 ? now + 10 * 60 * 1000 : 0 });
+        return json(res, 401, { ok:false, error:"invalid_pair_code" });
+      }
+      pairFailures.delete(ip);
+      return json(res, 200, {
+        ok:true,
+        publishToken:PUBLISH_TOKEN,
+        publishEndpoint:"wss://radio-relay-production.up.railway.app/publish",
+        publicUrl:"https://art.acousmatic-theatre.fr/radio-paillettes/en-ligne"
+      });
+    });
+    return;
+  }
+
   if (url.pathname === "/status") {
     return json(res, 200, {
       station: STATION,
@@ -129,6 +175,7 @@ const server = http.createServer((req, res) => {
       listeners: listeners.size,
       startedAt: startedAt || null,
       mediaMtx: MEDIAMTX_RTMP_URL ? "configured" : "disabled",
+      media: mediaMode,
       lastError: lastError || null
     });
   }
@@ -181,10 +228,28 @@ server.on("upgrade", (req, socket, head) => {
 wss.on("connection", ws => {
   publisher = ws;
   startedAt = Date.now();
-  startPipelines();
-  console.log(`ON AIR · ${STATION}`);
+  let started = false;
+  console.log(`PUBLISHER CONNECTED · ${STATION}`);
 
-  ws.on("message", data => writePublisherChunk(data));
+  ws.on("message", (data, isBinary) => {
+    if (!started && !isBinary) {
+      try {
+        const hello = JSON.parse(Buffer.from(data).toString("utf8"));
+        if (hello?.type === "hello") {
+          startPipelines(hello.media === "video" ? "video" : "audio");
+          started = true;
+          console.log(`ON AIR · ${STATION} · ${mediaMode}`);
+          return;
+        }
+      } catch {}
+    }
+    if (!started) {
+      startPipelines("audio");
+      started = true;
+      console.log(`ON AIR · ${STATION} · audio`);
+    }
+    writePublisherChunk(data);
+  });
   ws.on("error", err => {
     lastError = `publisher: ${err?.message || err}`;
     console.error(lastError);
