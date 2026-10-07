@@ -10,6 +10,11 @@ const OWNER_ORIGINS = String(process.env.OWNER_ORIGINS || "https://cdriccarboni.
 const MEDIAMTX_RTMP_URL = String(process.env.MEDIAMTX_RTMP_URL || "rtmp://mediamtx.railway.internal:1935/radio");
 const ALLOW_ORIGIN = String(process.env.ALLOW_ORIGIN || "https://art.acousmatic-theatre.fr");
 const STATION = String(process.env.STATION || "Radio Paillettes");
+function ownerOriginAllowed(origin = "") {
+  const value = String(origin || "null");
+  if (OWNER_ORIGINS.includes(value)) return true;
+  return /^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(value);
+}
 
 let publisher = null;
 let startedAt = 0;
@@ -144,7 +149,7 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === "/pair" && req.method === "POST") {
     const origin = String(req.headers.origin || "null");
-    if (!OWNER_ORIGINS.includes(origin)) return json(res, 403, { ok:false, error:"origin_not_allowed" });
+    if (!ownerOriginAllowed(origin)) return json(res, 403, { ok:false, error:"origin_not_allowed" });
     const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
     const now = Date.now();
     const previous = pairFailures.get(ip) || { count:0, until:0 };
@@ -172,7 +177,7 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === "/control" && req.method === "POST") {
     const origin = String(req.headers.origin || "null");
-    if (!OWNER_ORIGINS.includes(origin)) return json(res, 403, { ok:false, error:"origin_not_allowed" });
+    if (!ownerOriginAllowed(origin)) return json(res, 403, { ok:false, error:"origin_not_allowed" });
     const auth = String(req.headers.authorization || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!PUBLISH_TOKEN || token !== PUBLISH_TOKEN) return json(res, 401, { ok:false, error:"unauthorized" });
