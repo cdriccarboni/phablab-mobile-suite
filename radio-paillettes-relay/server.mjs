@@ -17,6 +17,8 @@ let mp3 = null;
 let rtmp = null;
 let lastError = "";
 let mediaMode = "audio";
+let publicBrand = "radio";
+let nowTitle = "RADIO PAILLETTES · ROCK / LIVE";
 const listeners = new Set();
 const pairFailures = new Map();
 
@@ -131,7 +133,7 @@ const server = http.createServer((req, res) => {
   if (req.method === "OPTIONS") {
     cors(res);
     res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.writeHead(204);
     return res.end();
   }
@@ -168,6 +170,24 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.pathname === "/control" && req.method === "POST") {
+    const origin = String(req.headers.origin || "null");
+    if (!OWNER_ORIGINS.includes(origin)) return json(res, 403, { ok:false, error:"origin_not_allowed" });
+    const auth = String(req.headers.authorization || "");
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!PUBLISH_TOKEN || token !== PUBLISH_TOKEN) return json(res, 401, { ok:false, error:"unauthorized" });
+    let body = "";
+    req.on("data", chunk => { body += chunk; if (body.length > 8192) req.destroy(); });
+    req.on("end", () => {
+      let payload = {};
+      try { payload = JSON.parse(body || "{}"); } catch {}
+      if (payload.brand === "radio" || payload.brand === "pirates") publicBrand = payload.brand;
+      if (typeof payload.nowTitle === "string" && payload.nowTitle.trim()) nowTitle = payload.nowTitle.trim().slice(0,180);
+      return json(res, 200, { ok:true, brand:publicBrand, nowTitle });
+    });
+    return;
+  }
+
   if (url.pathname === "/status") {
     return json(res, 200, {
       station: STATION,
@@ -176,6 +196,8 @@ const server = http.createServer((req, res) => {
       startedAt: startedAt || null,
       mediaMtx: MEDIAMTX_RTMP_URL ? "configured" : "disabled",
       media: mediaMode,
+      brand: publicBrand,
+      nowTitle,
       lastError: lastError || null
     });
   }
