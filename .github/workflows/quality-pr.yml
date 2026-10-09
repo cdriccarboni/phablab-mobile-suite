@@ -11,6 +11,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "android-base/**"
+      - "public/logos/**"
       - "store/**"
       - ".github/workflows/quality-pr.yml"
       - ".github/workflows/build-android-16.yml"
@@ -38,6 +39,8 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
+      - name: Validate Android launcher PNG integrity
+        run: node scripts/check-png-logos.mjs
       - name: Tests
         run: npm test
       - name: TypeScript
