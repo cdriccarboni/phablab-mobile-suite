@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 const PORT = Number(process.env.PORT || 3000);
 const PUBLISH_TOKEN = String(process.env.PUBLISH_TOKEN || "");
 const OWNER_PAIR_PIN = String(process.env.OWNER_PAIR_PIN || "");
+const RADIO_IDENTITY_PIN = String(process.env.RADIO_IDENTITY_PIN || "");
 const OWNER_ORIGINS = String(process.env.OWNER_ORIGINS || "https://cdriccarboni.github.io,null,http://localhost:3000,http://127.0.0.1:3000").split(",").map(v=>v.trim()).filter(Boolean);
 const MEDIAMTX_RTMP_URL = String(process.env.MEDIAMTX_RTMP_URL || "rtmp://mediamtx.railway.internal:1935/radio");
 const ALLOW_ORIGIN = String(process.env.ALLOW_ORIGIN || "https://art.acousmatic-theatre.fr");
@@ -137,7 +138,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === "OPTIONS") {
     cors(res);
-    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.writeHead(204);
     return res.end();
@@ -171,6 +172,32 @@ const server = http.createServer((req, res) => {
         publishEndpoint:"wss://radio-relay-production.up.railway.app/publish",
         publicUrl:"https://art.acousmatic-theatre.fr/radio-paillettes/en-ligne"
       });
+    });
+    return;
+  }
+
+  // Dedicated identity cue: never grants audio publication or any other control rights.
+  if (url.pathname === "/identity" && req.method === "POST") {
+    if (String(req.headers.origin || "") !== ALLOW_ORIGIN) return json(res, 403, { ok:false, error:"origin_not_allowed" });
+    const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+    const key = "identity:" + ip;
+    const now = Date.now();
+    const previous = pairFailures.get(key) || { count:0, until:0 };
+    if (previous.until > now) return json(res, 429, { ok:false, error:"try_later" });
+    let body = "";
+    req.on("data", chunk => { body += chunk; if (body.length > 2048) req.destroy(); });
+    req.on("end", () => {
+      let payload = {};
+      try { payload = JSON.parse(body || "{}"); } catch { return json(res, 400, { ok:false, error:"invalid_json" }); }
+      if (!RADIO_IDENTITY_PIN || payload.pin !== RADIO_IDENTITY_PIN) {
+        const count = previous.count + 1;
+        pairFailures.set(key, { count, until: count >= 5 ? now + 10 * 60 * 1000 : 0 });
+        return json(res, 401, { ok:false, error:"invalid_identity_code" });
+      }
+      pairFailures.delete(key);
+      if (!["radio","transition","pirates"].includes(payload.brand)) return json(res, 400, { ok:false, error:"invalid_brand" });
+      publicBrand = payload.brand;
+      return json(res, 200, { ok:true, brand: publicBrand });
     });
     return;
   }
