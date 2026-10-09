@@ -186,7 +186,7 @@ const server = http.createServer((req, res) => {
     req.on("end", () => {
       let payload = {};
       try { payload = JSON.parse(body || "{}"); } catch {}
-      if (payload.brand === "radio" || payload.brand === "pirates") publicBrand = payload.brand;
+      if (payload.brand === "radio" || payload.brand === "transition" || payload.brand === "pirates") publicBrand = payload.brand;
       if (typeof payload.nowTitle === "string" && payload.nowTitle.trim()) nowTitle = payload.nowTitle.trim().slice(0,180);
       return json(res, 200, { ok:true, brand:publicBrand, nowTitle });
     });
