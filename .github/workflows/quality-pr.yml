@@ -13,6 +13,8 @@ on:
       - "android-base/**"
       - "store/**"
       - ".github/workflows/quality-pr.yml"
+      - ".github/workflows/build-android-16.yml"
+      - ".github/workflows/build-p2.yml"
   workflow_dispatch:
 
 permissions:
