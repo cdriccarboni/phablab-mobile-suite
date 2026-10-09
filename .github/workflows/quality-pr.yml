@@ -1,0 +1,44 @@
+name: PhabLab PR quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "tests/**"
+      - "apps.json"
+      - "package.json"
+      - "package-lock.json"
+      - "android-base/**"
+      - "store/**"
+      - ".github/workflows/quality-pr.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phablab-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Tests
+        run: npm test
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Export standalone
+        run: node scripts/export-standalone.mjs
