@@ -62,10 +62,9 @@ jobs:
           test "$(find release/aab -name '*.aab' | wc -l | tr -d ' ')" = "16"
       - uses: actions/upload-artifact@v4
         with:
-          name: phablab-16-android
+          name: phablab-16-apk-tests
           path: |
             release/apk/*
-            release/aab/*
             release/manifest.json
             release/SHA256SUMS.txt
           if-no-files-found: error
@@ -79,8 +78,8 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           TAG="suite-v$VERSION-test"
           TITLE="PhabLab Mobile Suite $VERSION — 16 Android builds"
-          NOTES="16 APK debug + 16 AAB release non signés, produits après tests, typecheck et vérification des packages. Les AAB doivent être signés avec les clés Play propres à chaque application avant publication."
-          FILES=(release/apk/*.apk release/aab/*.aab release/manifest.json release/SHA256SUMS.txt)
+          NOTES="16 APK debug validés après tests, typecheck et vérification des packages. Les AAB sont compilés mais ne sont pas diffusés publiquement ; les versions Play signées restent privées."
+          FILES=(release/apk/*.apk release/manifest.json release/SHA256SUMS.txt)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${FILES[@]}" --clobber
             gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
