@@ -1,0 +1,156 @@
+name: PhabLab app -> Google Play
+
+on:
+  push:
+    branches:
+      - "play/**"
+    paths:
+      - "src/**"
+      - "public/**"
+      - "scripts/**"
+      - "apps.json"
+      - "package.json"
+      - "package-lock.json"
+      - "capacitor.config.ts"
+      - ".github/workflows/android-play.yml"
+  workflow_dispatch:
+    inputs:
+      app_id:
+        description: "Application PhabLab"
+        required: true
+        type: choice
+        options:
+          - wallcheck
+          - captioncast
+          - signme
+          - lagcheck
+          - tapback
+          - papercheck
+          - comparesound
+          - showmethat
+          - counttogether
+          - phablabphone
+          - twinlevel
+          - sensorlink
+          - syncmark
+          - soundrace
+          - framematch
+          - relaytap
+      publish_to_play:
+        description: "Publier sur Google Play"
+        required: true
+        type: boolean
+        default: false
+      track:
+        description: "Track Google Play"
+        required: true
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+      release_status:
+        description: "Statut de release"
+        required: true
+        type: choice
+        options: [draft, completed]
+        default: draft
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Resolve app
+        id: app
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == play/* ]]; then
+            APP_ID="${GITHUB_REF_NAME#play/}"
+          else
+            APP_ID="${{ github.event.inputs.app_id }}"
+          fi
+          APP_NAME="$(node -e 'const a=require("./apps.json").find(x=>x.id===process.argv[1]); if(!a)process.exit(2); process.stdout.write(a.name)' "$APP_ID")"
+          echo "id=$APP_ID" >> "$GITHUB_OUTPUT"
+          echo "name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          echo "package=com.phablabphone.$APP_ID" >> "$GITHUB_OUTPUT"
+          echo "version_code=$((200000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+
+      - run: npm install
+
+      - name: Build selected web app
+        env:
+          VITE_APP_ID: ${{ steps.app.outputs.id }}
+        run: npx vite build --outDir "dist/${{ steps.app.outputs.id }}"
+
+      - name: Generate Capacitor Android project
+        env:
+          MOBILE_APP_ID: ${{ steps.app.outputs.id }}
+          MOBILE_APP_NAME: ${{ steps.app.outputs.name }}
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Restore upload keystore when available
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/upload-keystore.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/upload-keystore.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure version and signing
+        env:
+          ANDROID_VERSION_CODE: ${{ steps.app.outputs.version_code }}
+          ANDROID_VERSION_NAME: "1.0.${{ github.run_number }}"
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: node scripts/configure-play-android.mjs
+
+      - name: Build APK + AAB
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleDebug bundleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.app.outputs.id }}-android
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Check Play publication prerequisites
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_play == 'true'
+        shell: bash
+        env:
+          PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_PATH" || { echo "::error::ANDROID_KEYSTORE_BASE64 absent"; exit 1; }
+          test -n "$PLAY_JSON" || { echo "::error::GOOGLE_PLAY_SERVICE_ACCOUNT_JSON absent"; exit 1; }
+
+      - name: Upload selected app to Google Play
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_play == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ steps.app.outputs.package }}
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          tracks: ${{ github.event.inputs.track }}
+          status: ${{ github.event.inputs.release_status }}
