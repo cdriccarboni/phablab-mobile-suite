@@ -1,0 +1,3 @@
+Première version de SoundRace.
+
+Comparez l’ordre de détection d’un son entre plusieurs téléphones et calibrez le seuil avec le bruit ambiant.

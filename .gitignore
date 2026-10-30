@@ -1,6 +1,9 @@
 node_modules/
 dist/
 android/
+!fastlane/metadata/
+!fastlane/metadata/android/
+!fastlane/metadata/android/**
 ios/
 release/
 .split/
