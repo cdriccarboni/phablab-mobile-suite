@@ -16,6 +16,7 @@ on:
       - ".github/workflows/quality-pr.yml"
       - ".github/workflows/build-android-16.yml"
       - ".github/workflows/build-p2.yml"
+      - ".github/workflows/android-play.yml"
   workflow_dispatch:
 
 permissions:
