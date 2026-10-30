@@ -1,13 +1,27 @@
 {
-  "suiteVersion": "1.0.0",
-  "android": {"targetSdk":36,"minSdk":26,"artifact":"AAB"},
-  "ios": {"minimum":"15.5","buildSdk":"iOS 26+","artifact":"IPA"},
-  "bundleIdPattern":"com.phablabphone.<app-id>",
-  "privacy":{"accountRequired":false,"cloudRequired":false,"defaultStorage":"local","analyticsBundled":false},
-  "releaseState":"pre-store-signing",
-  "notes":[
+  "suiteVersion": "1.0.1",
+  "android": {
+    "targetSdk": 36,
+    "minSdk": 26,
+    "artifact": "AAB"
+  },
+  "ios": {
+    "minimum": "15.5",
+    "buildSdk": "iOS 26+",
+    "artifact": "IPA"
+  },
+  "bundleIdPattern": "com.phablabphone.<app-id>",
+  "privacy": {
+    "accountRequired": false,
+    "cloudRequired": false,
+    "defaultStorage": "local",
+    "analyticsBundled": false
+  },
+  "releaseState": "android-16-apk-aab-test-ready",
+  "notes": [
+    "All 16 apps are built as debug APK plus unsigned release AAB in the unified Android workflow.",
     "Public names remain subject to trademark/name-availability review before store registration.",
     "Physical-device QA is required for microphone, camera, motion, speech, OCR and WebRTC.",
-    "Store signing and submission require developer-account credentials that must never be committed."
+    "Store signing and submission require the official per-app developer credentials and must never be generated or guessed."
   ]
 }
