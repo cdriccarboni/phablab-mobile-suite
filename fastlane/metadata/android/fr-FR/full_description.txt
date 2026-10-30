@@ -1,0 +1,7 @@
+SoundRace compare l’ordre de détection d’un son entre plusieurs téléphones.
+
+Armez les microphones, faites un son net et confortable, puis consultez le classement. L’application indique l’écart, en millisecondes, entre les détections enregistrées sur l’horloge propre à chaque téléphone.
+
+Avant une course, un échantillon d’ambiance d’une seconde peut proposer un seuil de détection. Vous pouvez aussi régler ce seuil.
+
+Les résultats sont comparatifs : les horloges ne sont pas synchronisées, le délai acoustique n’est pas mesuré et aucune détection n’est garantie. La course entre plusieurs téléphones nécessite une salle connectée. Le téléphone peut s’armer hors connexion. Le microphone est libéré quand l’application passe en arrière-plan.
