@@ -47,9 +47,8 @@ jobs:
         run: node scripts/build-p2-android.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: phablab-p2-apk-aab
+          name: phablab-p2-apk-tests
           path: |
             release/apk/*
-            release/aab/*
             release/p2-report.json
           if-no-files-found: error
